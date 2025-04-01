@@ -1,0 +1,45 @@
+{
+  "签到服务": {
+    "desc": "该配置项仅针对个人使用",
+    "data": [
+      {
+        "name": "签到",
+        "desc": "鸣潮签到",
+        "eg": "签到",
+        "need_ck": true,
+        "need_sk": false,
+        "need_admin": false
+      },
+      {
+        "name": "开启自动签到",
+        "desc": "开启每天的自动签到功能",
+        "eg": "开启自动签到",
+        "need_ck": true,
+        "need_sk": false,
+        "need_admin": false
+      }
+    ]
+  },
+  "bot主人功能": {
+    "pm": 1,
+    "desc": "bot主人功能",
+    "data": [
+      {
+        "name": "全部重新签到",
+        "desc": "全部重新签到所有人",
+        "eg": "全部签到",
+        "need_ck": false,
+        "need_sk": false,
+        "need_admin": true
+      },
+      {
+        "name": "订阅自动签到结果",
+        "desc": "订阅自动签到结果",
+        "eg": "订阅签到结果",
+        "need_ck": false,
+        "need_sk": false,
+        "need_admin": true
+      }
+    ]
+  }
+}

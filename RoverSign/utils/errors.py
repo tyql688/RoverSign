@@ -1,0 +1,4 @@
+ROVER_CODE_999 = -999
+
+WAVES_CODE_101_MSG = "请检查登录有效性"
+ROVER_CODE_999_MSG = "请求失败"
