@@ -48,18 +48,22 @@ async def set_config_func(ev: Event, uid: str = "0"):
             },
         )
 
-        if option == "off":
-            await gs_subscribe.delete_subscribe(
-                "single", BoardcastTypeEnum.SIGN_RESULT, ev
-            )
-        else:
-            await gs_subscribe.add_subscribe(
-                "single", BoardcastTypeEnum.SIGN_RESULT, ev
-            )
+        if ev.bot_id == "onebot":
+            if option == "off":
+                await gs_subscribe.delete_subscribe(
+                    "single", BoardcastTypeEnum.SIGN_WAVES, ev
+                )
+            else:
+                await gs_subscribe.add_subscribe(
+                    "single", BoardcastTypeEnum.SIGN_WAVES, ev
+                )
+
+        if option != "off":
             from .roversign_config import RoverSignConfig
 
             SIGN_TIME = RoverSignConfig.get_config("SignTime").data
             other_msg = f"😄将于[{SIGN_TIME[0]}:{SIGN_TIME[1]}]点自动为您开始{config_name}"
+
     else:
         return "该配置项不存在!"
 
