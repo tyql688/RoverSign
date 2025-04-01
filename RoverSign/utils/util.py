@@ -1,6 +1,7 @@
 import random
 import string
 import time
+from datetime import datetime, timedelta
 from functools import wraps
 
 
@@ -38,3 +39,13 @@ def generate_random_string(length=32):
     # 使用random.choice随机选择字符，并连接成字符串
     random_string = "".join(random.choice(characters) for i in range(length))
     return random_string
+
+
+def get_today_date():
+    today = datetime.now()
+    return today.strftime("%Y-%m-%d")
+
+
+def get_yesterday_date():
+    yesterday = datetime.now() - timedelta(days=1)
+    return yesterday.strftime("%Y-%m-%d")

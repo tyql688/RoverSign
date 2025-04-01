@@ -9,6 +9,8 @@ from gsuid_core.segment import MessageSegment
 
 from ..roversign_config.roversign_config import RoverSignConfig
 from ..utils.api.model import DailyData
+from ..utils.database.models import RoverSign, RoverSignData
+from ..utils.database.states import SignStatus
 from ..utils.fonts.waves_fonts import waves_font_24
 from ..utils.rover_api import rover_api
 
@@ -28,8 +30,12 @@ async def get_sign_interval(is_bbs: bool = False):
     )
 
 
-async def do_sign_in(taskData, uid, token):
-    if taskData["completeTimes"] == taskData["needActionTimes"]:
+async def do_sign_in(taskData, uid, token, rover_sign: RoverSignData):
+    if (
+        taskData["completeTimes"] == taskData["needActionTimes"]
+        or rover_sign.bbs_sign == SignStatus.BBS_SIGN
+    ):
+        rover_sign.bbs_sign = SignStatus.BBS_SIGN
         return True
 
     # 用户签到
@@ -37,6 +43,7 @@ async def do_sign_in(taskData, uid, token):
     if isinstance(sign_in_res, dict):
         if sign_in_res.get("code") == 200 and sign_in_res.get("data"):
             # 签到成功
+            rover_sign.bbs_sign = SignStatus.BBS_SIGN
             return True
     logger.warning(
         f"[鸣潮][社区签到]签到失败 uid: {uid} sign_in_res: {sign_in_res}"
@@ -44,8 +51,18 @@ async def do_sign_in(taskData, uid, token):
     return False
 
 
-async def do_detail(taskData, uid, token, post_list):
-    if taskData["completeTimes"] == taskData["needActionTimes"]:
+async def do_detail(
+    taskData,
+    uid,
+    token,
+    post_list,
+    rover_sign: RoverSignData,
+):
+    if (
+        taskData["completeTimes"] == taskData["needActionTimes"]
+        or rover_sign.bbs_detail == SignStatus.BBS_DETAIL
+    ):
+        rover_sign.bbs_detail = SignStatus.BBS_DETAIL
         return True
     # 浏览帖子
     detail_succ = 0
@@ -56,6 +73,9 @@ async def do_detail(taskData, uid, token, post_list):
         if post_detail_res.get("code") == 200:
             detail_succ += 1
             # 浏览成功
+            rover_sign.bbs_detail = (
+                rover_sign.bbs_detail + 1 if rover_sign.bbs_detail else 1
+            )
         else:
             # 浏览失败
             break
@@ -63,6 +83,7 @@ async def do_detail(taskData, uid, token, post_list):
             detail_succ
             >= taskData["needActionTimes"] - taskData["completeTimes"]
         ):
+            rover_sign.bbs_detail = SignStatus.BBS_DETAIL
             return True
 
         await asyncio.sleep(random.uniform(0, 1))
@@ -71,8 +92,18 @@ async def do_detail(taskData, uid, token, post_list):
     return False
 
 
-async def do_like(taskData, uid, token, post_list):
-    if taskData["completeTimes"] == taskData["needActionTimes"]:
+async def do_like(
+    taskData,
+    uid,
+    token,
+    post_list,
+    rover_sign: RoverSignData,
+):
+    if (
+        taskData["completeTimes"] == taskData["needActionTimes"]
+        or rover_sign.bbs_like == SignStatus.BBS_LIKE
+    ):
+        rover_sign.bbs_like = SignStatus.BBS_LIKE
         return True
 
     # 用户点赞5次
@@ -86,6 +117,9 @@ async def do_like(taskData, uid, token, post_list):
         if like_res.get("code") == 200:
             like_succ += 1
             # 点赞成功
+            rover_sign.bbs_like = (
+                rover_sign.bbs_like + 1 if rover_sign.bbs_like else 1
+            )
         else:
             # 点赞失败
             break
@@ -93,6 +127,7 @@ async def do_like(taskData, uid, token, post_list):
             like_succ
             >= taskData["needActionTimes"] - taskData["completeTimes"]
         ):
+            rover_sign.bbs_like = SignStatus.BBS_LIKE
             return True
 
         await asyncio.sleep(random.uniform(0, 1))
@@ -101,8 +136,17 @@ async def do_like(taskData, uid, token, post_list):
     return False
 
 
-async def do_share(taskData, uid, token):
-    if taskData["completeTimes"] == taskData["needActionTimes"]:
+async def do_share(
+    taskData,
+    uid,
+    token,
+    rover_sign: RoverSignData,
+):
+    if (
+        taskData["completeTimes"] == taskData["needActionTimes"]
+        or rover_sign.bbs_share == SignStatus.BBS_SHARE
+    ):
+        rover_sign.bbs_share = SignStatus.BBS_SHARE
         return True
 
     # 分享
@@ -110,6 +154,7 @@ async def do_share(taskData, uid, token):
     if isinstance(share_res, dict):
         if share_res.get("code") == 200:
             # 分享成功
+            rover_sign.bbs_share = SignStatus.BBS_SHARE
             return True
 
     logger.exception(f"[鸣潮][社区签到]分享失败 uid: {uid}")
@@ -117,6 +162,10 @@ async def do_share(taskData, uid, token):
 
 
 async def do_single_task(uid, token) -> Union[bool, Dict[str, bool]]:
+    rover_sign = await RoverSign.get_sign_data(uid)
+    if not rover_sign:
+        rover_sign = RoverSignData.build_bbs_sign(uid)
+
     # 任务列表
     task_res = await rover_api.get_task(token)
     if not isinstance(task_res, dict):
@@ -128,6 +177,21 @@ async def do_single_task(uid, token) -> Union[bool, Dict[str, bool]]:
         if i["completeTimes"] != i["needActionTimes"]:
             break
     else:
+        is_save = False
+        if not rover_sign.bbs_sign:
+            rover_sign.bbs_sign = SignStatus.BBS_SIGN
+            is_save = True
+        if not rover_sign.bbs_detail:
+            rover_sign.bbs_detail = SignStatus.BBS_DETAIL
+            is_save = True
+        if not rover_sign.bbs_like:
+            rover_sign.bbs_like = SignStatus.BBS_LIKE
+            is_save = True
+        if not rover_sign.bbs_share:
+            rover_sign.bbs_share = SignStatus.BBS_SHARE
+            is_save = True
+        if is_save:
+            await RoverSign.upsert_rover_sign(rover_sign)
         return True
 
     # check 1
@@ -167,15 +231,23 @@ async def do_single_task(uid, token) -> Union[bool, Dict[str, bool]]:
     # 获取到任务列表
     for i in task_res["data"]["dailyTask"]:
         if "签到" in i["remark"]:
-            form_result["用户签到"] = await do_sign_in(i, uid, token)
+            form_result["用户签到"] = await do_sign_in(
+                i, uid, token, rover_sign
+            )
         elif "浏览" in i["remark"]:
-            form_result["浏览帖子"] = await do_detail(i, uid, token, post_list)
+            form_result["浏览帖子"] = await do_detail(
+                i, uid, token, post_list, rover_sign
+            )
         elif "点赞" in i["remark"]:
-            form_result["点赞帖子"] = await do_like(i, uid, token, post_list)
+            form_result["点赞帖子"] = await do_like(
+                i, uid, token, post_list, rover_sign
+            )
         elif "分享" in i["remark"]:
-            form_result["分享帖子"] = await do_share(i, uid, token)
+            form_result["分享帖子"] = await do_share(i, uid, token, rover_sign)
 
         await asyncio.sleep(random.uniform(0, 1))
+
+    await RoverSign.upsert_rover_sign(rover_sign)
 
     return form_result
 
@@ -317,6 +389,9 @@ async def sign_in(uid: str, ck: str) -> str:
     if isinstance(sign_in_res, dict):
         if sign_in_res.get("code") == 200 and sign_in_res.get("data"):
             # 签到成功
+            await RoverSign.upsert_rover_sign(
+                RoverSignData.build_game_sign(uid)
+            )
             return "签到成功！"
         elif sign_in_res.get("code") == 1511:
             # 已经签到

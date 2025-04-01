@@ -1,6 +1,6 @@
 import asyncio
 import random
-from typing import Dict, List, Literal
+from typing import Dict, List, Literal, Optional
 
 from gsuid_core.bot import Bot
 from gsuid_core.logger import logger
@@ -11,7 +11,13 @@ from gsuid_core.utils.boardcast.models import BoardCastMsg, BoardCastMsgDict
 from ..roversign_config.roversign_config import RoverSignConfig
 from ..utils.boardcast import send_board_cast_msg
 from ..utils.constant import BoardcastTypeEnum, TokenStatus
-from ..utils.database.models import WavesBind, WavesUser
+from ..utils.database.models import (
+    RoverSign,
+    RoverSignData,
+    WavesBind,
+    WavesUser,
+)
+from ..utils.database.states import SignStatus
 from ..utils.errors import WAVES_CODE_101_MSG
 from ..utils.rover_api import rover_api
 from .main import (
@@ -41,6 +47,40 @@ async def get_bbs_signin_config():
     return RoverSignConfig.get_config("UserBBSSchedSignin").data
 
 
+async def action_sign_in(uid: str, token: str):
+    signed = False
+    if not await get_signin_config():
+        return signed
+    sign_res = await rover_api.sign_in_task_list(uid, token)
+    if isinstance(sign_res, dict):
+        signed = sign_res.get("data", {}).get("isSigIn", False)
+
+    if not signed:
+        res = await sign_in(uid, token)
+        if "成功" in res:
+            signed = True
+
+    if signed:
+        await RoverSign.upsert_rover_sign(RoverSignData.build_game_sign(uid))
+
+    return signed
+
+
+async def action_bbs_sign_in(uid: str, token: str):
+    bbs_signed = False
+    if not await get_bbs_signin_config():
+        return bbs_signed
+    bbs_signed = await do_single_task(uid, token)
+    if isinstance(bbs_signed, dict) and all(bbs_signed.values()):
+        bbs_signed = True
+    elif isinstance(bbs_signed, bool):
+        pass
+    else:
+        bbs_signed = False
+
+    return bbs_signed
+
+
 async def rover_sign_up_handler(bot: Bot, ev: Event):
     if not await get_signin_config() and not await get_bbs_signin_config():
         return "签到功能未开启"
@@ -56,6 +96,18 @@ async def rover_sign_up_handler(bot: Bot, ev: Event):
             "signed": False,
             "bbs_signed": False,
         }
+
+        rover_sign: Optional[RoverSign] = await RoverSign.get_sign_data(uid)
+        if rover_sign:
+            if SignStatus.game_sign_complete(rover_sign):
+                msg_temp["signed"] = True
+            if SignStatus.bbs_sign_complete(rover_sign):
+                msg_temp["bbs_signed"] = True
+
+        if msg_temp["signed"] and msg_temp["bbs_signed"]:
+            to_msg[uid] = msg_temp
+            continue
+
         token, token_status = await rover_api.get_self_token(uid, ev.user_id)
         if not token:
             if token_status == TokenStatus.INVALID:
@@ -63,30 +115,12 @@ async def rover_sign_up_handler(bot: Bot, ev: Event):
             continue
 
         # 签到状态
-        signed = False
-        if await get_signin_config():
-            sign_res = await rover_api.sign_in_task_list(uid, token)
-            if isinstance(sign_res, dict):
-                signed = sign_res.get("data", {}).get("isSigIn", False)
+        if not msg_temp["signed"]:
+            msg_temp["signed"] = await action_sign_in(uid, token)
 
-            if not signed:
-                res = await sign_in(uid, token)
-                if "成功" in res:
-                    signed = True
-
-        msg_temp["signed"] = signed
-
-        bbs_signed = False
-        if await get_bbs_signin_config():
-            bbs_signed = await do_single_task(uid, token)
-            if isinstance(bbs_signed, dict) and all(bbs_signed.values()):
-                bbs_signed = True
-            elif isinstance(bbs_signed, bool):
-                pass
-            else:
-                bbs_signed = False
-
-        msg_temp["bbs_signed"] = bbs_signed
+        # 社区签到状态
+        if not msg_temp["bbs_signed"]:
+            msg_temp["bbs_signed"] = await action_bbs_sign_in(uid, token)
 
         to_msg[uid] = msg_temp
 
