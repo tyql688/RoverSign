@@ -1,5 +1,6 @@
 GAME_ID = 3
 SERVER_ID = "76402e5b20be2c39f095a152090afddc"
+SERVER_ID_NET = "919752ae5ea09c1ced910dd668a63ffb"
 
 MAIN_URL = "https://api.kurobbs.com"
 
@@ -21,4 +22,4 @@ SIGNIN_URL = f"{MAIN_URL}/encourage/signIn/v2"
 SIGNIN_TASK_LIST_URL = f"{MAIN_URL}/encourage/signIn/initSignInV2"
 
 # game
-GAME_DATA_URL = f"{MAIN_URL}/gamer/widget/game3/refresh"
+GAME_DATA_URL = f"{MAIN_URL}/gamer/widget/game3/getData"

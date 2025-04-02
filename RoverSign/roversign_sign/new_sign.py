@@ -56,7 +56,7 @@ async def action_sign_in(uid: str, token: str):
         signed = sign_res.get("data", {}).get("isSigIn", False)
 
     if not signed:
-        res = await sign_in(uid, token)
+        res = await sign_in(uid, token, isForce=True)
         if "成功" in res:
             signed = True
 

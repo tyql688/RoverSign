@@ -24,6 +24,7 @@ from ..api.api import (
     POST_DETAIL_URL,
     REFRESH_URL,
     SERVER_ID,
+    SERVER_ID_NET,
     SHARE_URL,
     SIGN_IN_URL,
     SIGNIN_TASK_LIST_URL,
@@ -108,6 +109,18 @@ async def get_headers(
 class RoverRequest:
     ssl_verify = True
 
+    def is_net(self, roleId):
+        _temp = int(roleId)
+        return _temp >= 200000000
+
+    def get_server_id(self, roleId, serverId: Optional[str] = None):
+        if serverId:
+            return serverId
+        if self.is_net(roleId):
+            return SERVER_ID_NET
+        else:
+            return SERVER_ID
+
     async def get_self_token(
         self,
         waves_id: str,
@@ -144,12 +157,24 @@ class RoverRequest:
             return token, TokenStatus.VALID
 
     async def get_daily_info(
-        self, token: str
+        self, roleId: str, token: str, gameId: Union[str, int] = GAME_ID
     ) -> tuple[Optional[Dict], TokenStatus]:
         """每日"""
         header = copy.deepcopy(await get_headers(token))
         header.update({"token": token})
-        res = await self._waves_request(GAME_DATA_URL, "POST", header)
+        data = {
+            "type": "2",
+            "sizeType": "1",
+            "gameId": gameId,
+            "serverId": self.get_server_id(roleId),
+            "roleId": roleId,
+        }
+        res = await self._waves_request(
+            GAME_DATA_URL,
+            "POST",
+            header,
+            data=data,
+        )
         check_res, check_status = await check_response(res)
         if not check_res:
             return None, check_status

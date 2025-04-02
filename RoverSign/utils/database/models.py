@@ -11,7 +11,6 @@ from gsuid_core.utils.database.base_models import (
     User,
     with_session,
 )
-from gsuid_core.webconsole.mount_app import GsAdminModel, PageSchema, site
 
 from ..util import get_today_date
 

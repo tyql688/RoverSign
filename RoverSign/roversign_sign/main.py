@@ -373,19 +373,23 @@ async def single_daily_sign(
             group_msgs[gid]["success"] += 1
 
 
-async def sign_in(uid: str, ck: str) -> str:
-    daily_info, token_status = await rover_api.get_daily_info(ck)
-    if not daily_info:
-        # 检查ck
-        return f"签到失败！\n{token_status}"
+async def sign_in(uid: str, ck: str, isForce: bool = False) -> str:
+    hasSignIn = False
+    if not isForce:
+        # 获取签到状态
+        res = await rover_api.sign_in_task_list(uid, ck)
+        if isinstance(res, dict):
+            hasSignIn = res.get("data", {}).get("isSigIn", False)
 
-    daily_info = DailyData.model_validate(daily_info)
-    if daily_info.hasSignIn:
-        # 已经签到
-        logger.debug(f"UID{uid} 该用户今日已签到,跳过...")
-        return "今日已签到！请勿重复签到！"
+        if hasSignIn:
+            # 已经签到
+            await RoverSign.upsert_rover_sign(
+                RoverSignData.build_game_sign(uid)
+            )
+            logger.debug(f"UID{uid} 该用户今日已签到,跳过...")
+            return "今日已签到！请勿重复签到！"
 
-    sign_in_res = await rover_api.sign_in(daily_info.roleId, ck)
+    sign_in_res = await rover_api.sign_in(uid, ck)
     if isinstance(sign_in_res, dict):
         if sign_in_res.get("code") == 200 and sign_in_res.get("data"):
             # 签到成功
@@ -395,6 +399,9 @@ async def sign_in(uid: str, ck: str) -> str:
             return "签到成功！"
         elif sign_in_res.get("code") == 1511:
             # 已经签到
+            await RoverSign.upsert_rover_sign(
+                RoverSignData.build_game_sign(uid)
+            )
             logger.debug(f"UID{uid} 该用户今日已签到,跳过...")
             return "今日已签到！请勿重复签到！"
     # 签到失败
