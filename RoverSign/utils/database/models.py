@@ -1,7 +1,7 @@
 from typing import Any, Dict, List, Optional, Type, TypeVar
 
 from pydantic import BaseModel
-from sqlalchemy import null
+from sqlalchemy import delete, null, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import Field, select
 
@@ -44,11 +44,7 @@ class WavesUser(User, table=True):
         """
         根据用户ID和鸣潮UID查询cookie
         """
-        sql = (
-            select(cls)
-            .where(cls.user_id == user_id)
-            .where(cls.uid == waves_id)
-        )
+        sql = select(cls).where(cls.user_id == user_id).where(cls.uid == waves_id)
         result = await session.execute(sql)
         data = result.scalars().all()
         return data[0].cookie if data else None
@@ -90,13 +86,13 @@ class WavesUser(User, table=True):
 
 
 class RoverSignData(BaseModel):
-    uid: str
-    date: Optional[str] = None
-    game_sign: Optional[int] = None
-    bbs_sign: Optional[int] = None
-    bbs_detail: Optional[int] = None
-    bbs_like: Optional[int] = None
-    bbs_share: Optional[int] = None
+    uid: str  # 鸣潮UID
+    date: Optional[str] = None  # 签到日期
+    game_sign: Optional[int] = None  # 游戏签到
+    bbs_sign: Optional[int] = None  # 社区签到
+    bbs_detail: Optional[int] = None  # 社区浏览
+    bbs_like: Optional[int] = None  # 社区点赞
+    bbs_share: Optional[int] = None  # 社区分享
 
     @classmethod
     def build(cls, uid: str):
@@ -210,3 +206,15 @@ class RoverSign(BaseIDModel, table=True):
         sql = select(cls).where(cls.date == actual_date)
         result = await session.execute(sql)
         return list(result.scalars().all())
+
+    @classmethod
+    @with_session
+    async def clear_sign_record(
+        cls: Type[T_RoverSign],
+        session: AsyncSession,
+        date: str,
+    ):
+        """清除签到记录"""
+        sql = delete(cls).where(getattr(cls, "date") <= date)
+        await session.execute(sql)
+        await session.commit()

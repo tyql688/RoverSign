@@ -70,7 +70,7 @@ async def get_headers_h5():
         "Content-Type": "application/x-www-form-urlencoded; charset=utf-8",
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36 Edg/132.0.0.0",
         "devCode": devCode,
-        "version": "2.4.1",
+        "version": "2.4.3",
     }
     return header
 
@@ -82,7 +82,7 @@ async def get_headers_ios():
         "Content-Type": "application/x-www-form-urlencoded; charset=utf-8",
         "User-Agent": "KuroGameBox/1 CFNetwork/1568.300.101 Darwin/24.2.0",
         "devCode": devCode,
-        "version": "2.4.1",
+        "version": "2.4.3",
     }
     return header
 

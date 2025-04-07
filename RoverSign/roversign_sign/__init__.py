@@ -7,6 +7,8 @@ from gsuid_core.sv import SV
 
 from ..roversign_config.roversign_config import RoverSignConfig
 from ..utils.constant import BoardcastTypeEnum
+from ..utils.database.models import RoverSign
+from ..utils.util import get_two_days_ago_date
 from .new_sign import rover_auto_sign_task, rover_sign_up_handler
 
 sv_waves_sign = SV("RoverSign-签到", priority=1)
@@ -35,9 +37,7 @@ async def rover_user_sign(bot: Bot, ev: Event):
 @scheduler.scheduled_job("cron", hour=SIGN_TIME[0], minute=SIGN_TIME[1])
 async def rover_auto_sign():
     msg = await rover_auto_sign_task()
-    subscribes = await gs_subscribe.get_subscribe(
-        BoardcastTypeEnum.SIGN_RESULT
-    )
+    subscribes = await gs_subscribe.get_subscribe(BoardcastTypeEnum.SIGN_RESULT)
     if subscribes:
         logger.info(f"[RoverSign]推送主人签到结果: {msg}")
         for sub in subscribes:
@@ -64,12 +64,15 @@ async def rover_sign_result(bot: Bot, ev: Event):
         option = "开启"
 
     if option == "关闭":
-        await gs_subscribe.delete_subscribe(
-            "single", BoardcastTypeEnum.SIGN_RESULT, ev
-        )
+        await gs_subscribe.delete_subscribe("single", BoardcastTypeEnum.SIGN_RESULT, ev)
     else:
-        await gs_subscribe.add_subscribe(
-            "single", BoardcastTypeEnum.SIGN_RESULT, ev
-        )
+        await gs_subscribe.add_subscribe("single", BoardcastTypeEnum.SIGN_RESULT, ev)
 
     await bot.send(f"[RoverSign] [订阅签到结果] 已{option}订阅!")
+
+
+@scheduler.scheduled_job("cron", hour=0, minute=5)
+async def clear_sign_record():
+    """清除2天前的签到记录"""
+    await RoverSign.clear_sign_record(get_two_days_ago_date())
+    logger.info("[RoverSign] [清除签到记录] 已清除2天前的签到记录!")

@@ -49,3 +49,8 @@ def get_today_date():
 def get_yesterday_date():
     yesterday = datetime.now() - timedelta(days=1)
     return yesterday.strftime("%Y-%m-%d")
+
+
+def get_two_days_ago_date():
+    two_days_ago = datetime.now() - timedelta(days=2)
+    return two_days_ago.strftime("%Y-%m-%d")
