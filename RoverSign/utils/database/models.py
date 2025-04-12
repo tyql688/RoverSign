@@ -1,7 +1,7 @@
 from typing import Any, Dict, List, Optional, Type, TypeVar
 
 from pydantic import BaseModel
-from sqlalchemy import delete, null, text
+from sqlalchemy import delete, null
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import Field, select
 

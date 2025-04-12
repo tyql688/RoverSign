@@ -87,13 +87,11 @@ async def get_headers_ios():
     return header
 
 
-async def get_headers(
-    ck: Optional[str] = None, platform: Optional[str] = None
-):
+async def get_headers(ck: Optional[str] = None, platform: Optional[str] = None):
     if ck and not platform:
         try:
-            waves_user: Optional[WavesUser] = (
-                await WavesUser.select_data_by_cookie(cookie=ck)
+            waves_user: Optional[WavesUser] = await WavesUser.select_data_by_cookie(
+                cookie=ck
             )
             platform = waves_user.platform if waves_user else "h5"
         except Exception as _:
@@ -152,6 +150,8 @@ class RoverRequest:
 
         check_res, check_status = await check_response(res, waves_id)
         if check_res is None:
+            if check_status == TokenStatus.INVALID:
+                await WavesUser.mark_invalid(token, "无效")
             return None, check_status
         else:
             return token, TokenStatus.VALID
@@ -213,9 +213,7 @@ class RoverRequest:
             header = copy.deepcopy(await get_headers(token))
             header.update({"token": token})
             data = {"gameId": "0"}
-            return await self._waves_request(
-                GET_TASK_URL, "POST", header, data=data
-            )
+            return await self._waves_request(GET_TASK_URL, "POST", header, data=data)
         except Exception as e:
             logger.exception(f"get_task token {token}", e)
 
@@ -223,9 +221,7 @@ class RoverRequest:
         3600,
         lambda x: x and isinstance(x, dict) and x.get("code") == 200,
     )
-    async def get_form_list(
-        self, token: str
-    ) -> Optional[Union[Dict, int, str]]:
+    async def get_form_list(self, token: str) -> Optional[Union[Dict, int, str]]:
         try:
             header = copy.deepcopy(await get_headers(token))
             header.update({"token": token, "version": "2.25"})
@@ -237,9 +233,7 @@ class RoverRequest:
                 "forumId": "9",
                 "gameId": "3",
             }
-            return await self._waves_request(
-                FORUM_LIST_URL, "POST", header, data=data
-            )
+            return await self._waves_request(FORUM_LIST_URL, "POST", header, data=data)
         except Exception as e:
             logger.exception(f"get_form_list token {token}", e)
 
@@ -266,9 +260,7 @@ class RoverRequest:
                 "postId": postId,
                 "toUserId": toUserId,
             }
-            return await self._waves_request(
-                LIKE_URL, "POST", header, data=data
-            )
+            return await self._waves_request(LIKE_URL, "POST", header, data=data)
         except Exception as e:
             logger.exception(f"do_like token {token}", e)
 
@@ -278,9 +270,7 @@ class RoverRequest:
             header = copy.deepcopy(await get_headers(token))
             header.update({"token": token})
             data = {"gameId": "2"}
-            return await self._waves_request(
-                SIGN_IN_URL, "POST", header, data=data
-            )
+            return await self._waves_request(SIGN_IN_URL, "POST", header, data=data)
         except Exception as e:
             logger.exception(f"do_sign_in token {token}", e)
 
@@ -296,9 +286,7 @@ class RoverRequest:
                 "showOrderType": "2",
                 "isOnlyPublisher": "0",
             }
-            return await self._waves_request(
-                POST_DETAIL_URL, "POST", header, data=data
-            )
+            return await self._waves_request(POST_DETAIL_URL, "POST", header, data=data)
         except Exception as e:
             logger.exception(f"do_post_detail token {token}", e)
 
@@ -308,9 +296,7 @@ class RoverRequest:
             header = copy.deepcopy(await get_headers(token))
             header.update({"token": token})
             data = {"gameId": "3"}
-            return await self._waves_request(
-                SHARE_URL, "POST", header, data=data
-            )
+            return await self._waves_request(SHARE_URL, "POST", header, data=data)
         except Exception as e:
             logger.exception(f"do_share token {token}", e)
 
@@ -375,9 +361,7 @@ class RoverRequest:
                         logger.debug(f"url:[{url}] raw_data:{raw_data}")
                         return raw_data
             except Exception as e:
-                logger.exception(
-                    f"url:[{url}] attempt {attempt + 1} failed", e
-                )
+                logger.exception(f"url:[{url}] attempt {attempt + 1} failed", e)
                 if attempt < max_retries - 1:
                     await asyncio.sleep(retry_delay)
         return ROVER_CODE_999
