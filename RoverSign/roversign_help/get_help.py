@@ -6,8 +6,7 @@ from PIL import Image
 
 from gsuid_core.help.draw_new_plugin_help import get_new_help
 from gsuid_core.help.model import PluginHelp
-
-from ..roversign_config import PREFIX
+from gsuid_core.sv import get_plugin_available_prefix
 from ..utils.image import get_footer
 from ..version import RoverSign_version
 
@@ -27,6 +26,7 @@ plugin_help = get_help_data()
 
 
 async def get_help(pm: int):
+    PREFIX = get_plugin_available_prefix("RoverSign")
     return await get_new_help(
         plugin_name="RoverSign",
         plugin_info={f"v{RoverSign_version}": ""},
