@@ -2,7 +2,15 @@ GAME_ID = 3
 SERVER_ID = "76402e5b20be2c39f095a152090afddc"
 SERVER_ID_NET = "919752ae5ea09c1ced910dd668a63ffb"
 
-MAIN_URL = "https://api.kurobbs.com"
+
+def get_main_url():
+    from ...roversign_config.roversign_config import RoverSignConfig
+
+    KuroUrlProxyUrl = RoverSignConfig.get_config("KuroUrlProxyUrl").data
+    return KuroUrlProxyUrl or "https://api.kurobbs.com"
+
+
+MAIN_URL = get_main_url()
 
 # 刷新数据
 REFRESH_URL = f"{MAIN_URL}/aki/roleBox/akiBox/refreshData"
@@ -23,3 +31,12 @@ SIGNIN_TASK_LIST_URL = f"{MAIN_URL}/encourage/signIn/initSignInV2"
 
 # game
 GAME_DATA_URL = f"{MAIN_URL}/gamer/widget/game3/getData"
+
+
+def get_local_proxy_url():
+    from ...roversign_config.roversign_config import RoverSignConfig
+
+    LocalProxyUrl = RoverSignConfig.get_config("LocalProxyUrl").data
+    if LocalProxyUrl:
+        return LocalProxyUrl
+    return None

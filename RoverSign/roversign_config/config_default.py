@@ -5,6 +5,7 @@ from gsuid_core.utils.plugins_config.models import (
     GsBoolConfig,
     GsIntConfig,
     GsListStrConfig,
+    GsStrConfig,
 )
 
 CONFIG_DEFAULT: Dict[str, GSC] = {
@@ -60,5 +61,15 @@ CONFIG_DEFAULT: Dict[str, GSC] = {
         "签到群组图片报告",
         "签到以图片形式报告",
         False,
+    ),
+    "KuroUrlProxyUrl": GsStrConfig(
+        "库洛域名代理（重启生效）",
+        "库洛域名代理（重启生效）",
+        "",
+    ),
+    "LocalProxyUrl": GsStrConfig(
+        "本地代理地址",
+        "本地代理地址",
+        "",
     ),
 }

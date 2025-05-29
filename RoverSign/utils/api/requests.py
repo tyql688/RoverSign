@@ -1,6 +1,7 @@
 import asyncio
 import copy
 import json as j
+import uuid
 from datetime import datetime
 from typing import Any, Dict, Literal, Optional, Tuple, Union
 
@@ -29,6 +30,7 @@ from ..api.api import (
     SIGN_IN_URL,
     SIGNIN_TASK_LIST_URL,
     SIGNIN_URL,
+    get_local_proxy_url,
 )
 from ..constant import TokenStatus
 from ..database.models import WavesUser
@@ -68,21 +70,21 @@ async def get_headers_h5():
     header = {
         "source": "h5",
         "Content-Type": "application/x-www-form-urlencoded; charset=utf-8",
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36 Edg/132.0.0.0",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36 Edg/136.0.0.0",
         "devCode": devCode,
-        "version": "2.4.3",
+        "version": "2.5.0",
     }
     return header
 
 
 async def get_headers_ios():
-    devCode = generate_random_string()
+    devCode = uuid.uuid4()
     header = {
         "source": "ios",
         "Content-Type": "application/x-www-form-urlencoded; charset=utf-8",
-        "User-Agent": "KuroGameBox/1 CFNetwork/1568.300.101 Darwin/24.2.0",
-        "devCode": devCode,
-        "version": "2.4.3",
+        "User-Agent": "KuroGameBox/1 CFNetwork/3826.500.111.2.2 Darwin/24.4.0",
+        "devCode": f"{devCode}",
+        "version": "2.5.0",
     }
     return header
 
@@ -326,6 +328,8 @@ class RoverRequest:
         if header is None:
             header = await get_headers()
 
+        proxy_url = get_local_proxy_url()
+
         for attempt in range(max_retries):
             try:
                 async with ClientSession(
@@ -338,6 +342,7 @@ class RoverRequest:
                         params=params,
                         json=json,
                         data=data,
+                        proxy=proxy_url,
                         timeout=ClientTimeout(10),
                     ) as resp:
                         try:
