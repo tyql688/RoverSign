@@ -43,6 +43,10 @@ def generate_random_ipv6_manual():
     return ":".join([hex(random.randint(0, 0xFFFF))[2:].zfill(4) for _ in range(8)])
 
 
+def generate_random_ipv4_manual():
+    return ".".join([str(random.randint(0, 255)) for _ in range(4)])
+
+
 async def check_response(
     res: Union[Dict, int],
     waves_id: Optional[str] = None,
@@ -77,7 +81,7 @@ async def get_headers_h5():
         "Content-Type": "application/x-www-form-urlencoded; charset=utf-8",
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36 Edg/136.0.0.0",
         "devCode": devCode,
-        "X-Forwarded-For": generate_random_ipv6_manual(),
+        "X-Forwarded-For": generate_random_ipv4_manual(),
         "version": "2.5.0",
     }
     return header
@@ -90,7 +94,7 @@ async def get_headers_ios():
         "Content-Type": "application/x-www-form-urlencoded; charset=utf-8",
         "User-Agent": "KuroGameBox/1 CFNetwork/3826.500.111.2.2 Darwin/24.4.0",
         "devCode": f"{devCode}",
-        "X-Forwarded-For": generate_random_ipv6_manual(),
+        "X-Forwarded-For": generate_random_ipv4_manual(),
         "version": "2.5.0",
     }
     return header
