@@ -32,6 +32,8 @@ class WavesUser(User, table=True):
     platform: str = Field(default="", title="ck平台")
     stamina_bg_value: str = Field(default="", title="体力背景")
     bbs_sign_switch: str = Field(default="off", title="自动社区签到")
+    bat: str = Field(default="", title="bat")
+    did: str = Field(default="", title="did")
 
     @classmethod
     @with_session

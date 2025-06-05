@@ -1,8 +1,6 @@
 import asyncio
 import copy
 import json as j
-import random
-import uuid
 from datetime import datetime
 from typing import Any, Dict, Literal, Optional, Tuple, Union
 
@@ -36,19 +34,17 @@ from ..api.api import (
 from ..constant import TokenStatus
 from ..database.models import WavesUser
 from ..errors import ROVER_CODE_999
-from ..util import generate_random_string, timed_async_cache
-
-
-def generate_random_ipv6_manual():
-    return ":".join([hex(random.randint(0, 0xFFFF))[2:].zfill(4) for _ in range(8)])
-
-
-def generate_random_ipv4_manual():
-    return ".".join([str(random.randint(0, 255)) for _ in range(4)])
+from ..util import (
+    generate_random_ipv4_manual,
+    generate_random_string,
+    get_public_ip,
+    timed_async_cache,
+)
 
 
 async def check_response(
     res: Union[Dict, int],
+    token: Optional[str] = None,
     waves_id: Optional[str] = None,
 ) -> tuple[Optional[Dict], TokenStatus]:
     if not isinstance(res, dict):
@@ -67,6 +63,8 @@ async def check_response(
     if res_msg == "请求成功":
         return None, TokenStatus.NOT_REGISTERED
     elif "重新登录" in res_msg or "登录已过期" in res_msg:
+        if token:
+            await WavesUser.mark_invalid(token, "无效")
         return None, TokenStatus.INVALID
     elif "denied" in res_data or "RBAC" in res_data:
         return None, TokenStatus.BANNED
@@ -88,33 +86,43 @@ async def get_headers_h5():
 
 
 async def get_headers_ios():
-    devCode = uuid.uuid4()
+    ip = await get_public_ip()
     header = {
         "source": "ios",
         "Content-Type": "application/x-www-form-urlencoded; charset=utf-8",
-        "User-Agent": "KuroGameBox/1 CFNetwork/3826.500.111.2.2 Darwin/24.4.0",
-        "devCode": f"{devCode}",
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko)  KuroGameBox/2.5.0",
+        "devCode": f"{ip}, Mozilla/5.0 (iPhone; CPU iPhone OS 18_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko)  KuroGameBox/2.5.0",
         "X-Forwarded-For": generate_random_ipv4_manual(),
         "version": "2.5.0",
     }
     return header
 
 
-async def get_headers(ck: Optional[str] = None, platform: Optional[str] = None):
+async def get_headers(
+    ck: Optional[str] = None,
+    platform: Optional[str] = None,
+) -> Dict:
+    bat = ""
+    did = ""
     if ck and not platform:
         try:
-            waves_user: Optional[WavesUser] = await WavesUser.select_data_by_cookie(
-                cookie=ck
-            )
-            platform = waves_user.platform if waves_user else "h5"
+            waves_user = await WavesUser.select_data_by_cookie(cookie=ck)
+            if waves_user:
+                platform = waves_user.platform
+                bat = waves_user.bat
+                did = waves_user.did
         except Exception as _:
             pass
-    if platform == "h5" or not platform:
-        return await get_headers_h5()
-    elif platform == "ios":
-        return await get_headers_ios()
 
-    return await get_headers_h5()
+    if platform == "ios":
+        header = await get_headers_ios()
+    else:
+        header = await get_headers_h5()
+    if bat:
+        header.update({"b-at": bat})
+    if did:
+        header.update({"did": did})
+    return header
 
 
 class RoverRequest:
@@ -161,7 +169,7 @@ class RoverRequest:
         }
         res = await self._waves_request(REFRESH_URL, "POST", header, data=data)
 
-        check_res, check_status = await check_response(res, waves_id)
+        check_res, check_status = await check_response(res, token, waves_id)
         if check_res is None:
             if check_status == TokenStatus.INVALID:
                 await WavesUser.mark_invalid(token, "无效")
@@ -188,7 +196,7 @@ class RoverRequest:
             header,
             data=data,
         )
-        check_res, check_status = await check_response(res)
+        check_res, check_status = await check_response(res, token)
         if not check_res:
             return None, check_status
         else:
@@ -299,6 +307,8 @@ class RoverRequest:
                 "showOrderType": "2",
                 "isOnlyPublisher": "0",
             }
+            if header.get("did"):
+                data.update({"devCode": header.get("did", "")})
             return await self._waves_request(POST_DETAIL_URL, "POST", header, data=data)
         except Exception as e:
             logger.exception(f"do_post_detail token {token}", e)
