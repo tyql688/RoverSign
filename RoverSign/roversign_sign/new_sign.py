@@ -197,22 +197,22 @@ async def rover_auto_sign_task():
             if user.status:
                 return
 
-            token, token_status = await rover_api.refresh_data(
-                user.uid, user.cookie
-            )
+            _, token_status = await rover_api.get_daily_info(user.uid, user.user_id)
+            if token_status != TokenStatus.VALID:
+                logger.warning(f"自动签到数据刷新失败: {user.uid} {token_status}")
+                return
+
+            token, token_status = await rover_api.refresh_data(user.uid, user.cookie)
             if not token:
                 if token_status == TokenStatus.BANNED:
                     raise Exception(f"自动签到失败: {token_status}")
-                logger.warning(
-                    f"自动签到数据刷新失败: {user.uid} {token_status}"
-                )
+                logger.warning(f"自动签到数据刷新失败: {user.uid} {token_status}")
                 return
 
             await asyncio.sleep(random.randint(1, 2))
 
             if (
-                RoverSignConfig.get_config("SchedSignin").data
-                and user.uid in sign_user
+                RoverSignConfig.get_config("SchedSignin").data and user.uid in sign_user
             ) or RoverSignConfig.get_config("SigninMaster").data:
                 await single_daily_sign(
                     user.bot_id,
@@ -244,9 +244,7 @@ async def rover_auto_sign_task():
 
                 await asyncio.sleep(random.randint(2, 4))
 
-    max_concurrent: int = RoverSignConfig.get_config(
-        "SigninConcurrentNum"
-    ).data
+    max_concurrent: int = RoverSignConfig.get_config("SigninConcurrentNum").data
     semaphore = asyncio.Semaphore(max_concurrent)
     tasks = [process_user(semaphore, user) for user in need_user_list]
     for i in range(0, len(tasks), max_concurrent):

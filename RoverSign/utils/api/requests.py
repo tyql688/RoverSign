@@ -1,5 +1,4 @@
 import asyncio
-import copy
 import json as j
 from datetime import datetime
 from typing import Any, Dict, Literal, Optional, Tuple, Union
@@ -16,11 +15,11 @@ from gsuid_core.logger import logger
 
 from ..api.api import (
     FORUM_LIST_URL,
-    GAME_DATA_URL,
     GAME_ID,
     GET_GOLD_URL,
     GET_TASK_URL,
     LIKE_URL,
+    MR_REFRESH_URL,
     POST_DETAIL_URL,
     REFRESH_URL,
     SERVER_ID,
@@ -53,12 +52,12 @@ async def check_response(
 
     res_code = res.get("code")
     res_data = res.get("data", "")
-    res_msg = res.get("msg", "")
+    res_msg = res.get("msg", "") or ""
 
     if res_code == 200:
         return res_data, TokenStatus.VALID
 
-    logger.warning(f"[{waves_id}] 请求失败 msg:{res_msg} data:{res_data}")
+    logger.warning(f"[RoverSign][{waves_id}] 请求失败 msg:{res_msg} data:{res_data}")
 
     if res_msg == "请求成功":
         return None, TokenStatus.NOT_REGISTERED
@@ -66,16 +65,19 @@ async def check_response(
         if token:
             await WavesUser.mark_invalid(token, "无效")
         return None, TokenStatus.INVALID
-    elif "denied" in res_data or "RBAC" in res_data:
+    elif isinstance(res_data, str) and ("denied" in res_data or "RBAC" in res_data):
         return None, TokenStatus.BANNED
+    elif res_code == 10902:
+        # 新错误。暂不归类。
+        return None, TokenStatus.ERROR
     else:
         return None, TokenStatus.UNKNOWN
 
 
-async def get_headers_h5():
+async def get_common_header(platform: str = "ios"):
     devCode = generate_random_string()
     header = {
-        "source": "h5",
+        "source": platform,
         "Content-Type": "application/x-www-form-urlencoded; charset=utf-8",
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36 Edg/136.0.0.0",
         "devCode": devCode,
@@ -93,7 +95,7 @@ async def get_headers_ios():
         "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko)  KuroGameBox/2.5.0",
         "devCode": f"{ip}, Mozilla/5.0 (iPhone; CPU iPhone OS 18_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko)  KuroGameBox/2.5.0",
         "X-Forwarded-For": generate_random_ipv4_manual(),
-        "version": "2.5.0",
+        "version": "2.5.0",  # getPostDetail 需要版本号
     }
     return header
 
@@ -102,22 +104,23 @@ async def get_headers(
     ck: Optional[str] = None,
     platform: Optional[str] = None,
 ) -> Dict:
+    if not ck and not platform:
+        return await get_common_header("ios")
+
     bat = ""
     did = ""
-    if ck and not platform:
-        try:
-            waves_user = await WavesUser.select_data_by_cookie(cookie=ck)
-            if waves_user:
-                platform = waves_user.platform
-                bat = waves_user.bat
-                did = waves_user.did
-        except Exception as _:
-            pass
+    platform = "ios"
+    if ck:
+        waves_user = await WavesUser.select_data_by_cookie(cookie=ck)
+        if waves_user:
+            platform = waves_user.platform
+            bat = waves_user.bat
+            did = waves_user.did
 
     if platform == "ios":
         header = await get_headers_ios()
     else:
-        header = await get_headers_h5()
+        header = await get_common_header(platform or "ios")
     if bat:
         header.update({"b-at": bat})
     if did:
@@ -152,6 +155,10 @@ class RoverRequest:
         if not await WavesUser.cookie_validate(waves_id):
             return None, TokenStatus.INVALID
 
+        _, token_status = await self.get_daily_info(waves_id, cookie)
+        if token_status != TokenStatus.VALID:
+            return None, token_status
+
         return await self.refresh_data(waves_id, cookie)
 
     async def refresh_data(
@@ -160,7 +167,7 @@ class RoverRequest:
         token: str,
     ) -> Tuple[Optional[str], TokenStatus]:
         """刷新数据"""
-        header = copy.deepcopy(await get_headers(token))
+        header = await get_headers(token)
         header.update({"token": token})
         data = {
             "gameId": GAME_ID,
@@ -181,17 +188,17 @@ class RoverRequest:
         self, roleId: str, token: str, gameId: Union[str, int] = GAME_ID
     ) -> tuple[Optional[Dict], TokenStatus]:
         """每日"""
-        header = copy.deepcopy(await get_headers(token))
+        header = await get_headers(token)
         header.update({"token": token})
         data = {
-            "type": "2",
-            "sizeType": "1",
+            "type": "1",
+            "sizeType": "2",
             "gameId": gameId,
             "serverId": self.get_server_id(roleId),
             "roleId": roleId,
         }
         res = await self._waves_request(
-            GAME_DATA_URL,
+            MR_REFRESH_URL,
             "POST",
             header,
             data=data,
@@ -204,7 +211,7 @@ class RoverRequest:
 
     async def sign_in(self, roleId: str, token: str) -> Union[Dict, int]:
         """游戏签到"""
-        header = copy.deepcopy(await get_headers(token))
+        header = await get_headers(token)
         header.update({"token": token, "devcode": ""})
         data = {
             "gameId": GAME_ID,
@@ -218,7 +225,7 @@ class RoverRequest:
         self, roleId: str, token: str, serverId: Optional[str] = None
     ) -> Union[Dict, int]:
         """游戏签到"""
-        header = copy.deepcopy(await get_headers(token))
+        header = await get_headers(token)
         header.update({"token": token, "devcode": ""})
         data = {
             "gameId": GAME_ID,
@@ -231,7 +238,7 @@ class RoverRequest:
 
     async def get_task(self, token: str) -> Optional[Union[Dict, int, str]]:
         try:
-            header = copy.deepcopy(await get_headers(token))
+            header = await get_headers(token)
             header.update({"token": token})
             data = {"gameId": "0"}
             return await self._waves_request(GET_TASK_URL, "POST", header, data=data)
@@ -244,7 +251,7 @@ class RoverRequest:
     )
     async def get_form_list(self, token: str) -> Optional[Union[Dict, int, str]]:
         try:
-            header = copy.deepcopy(await get_headers(token))
+            header = await get_headers(token)
             header.update({"token": token, "version": "2.25"})
             data = {
                 "pageIndex": "1",
@@ -261,7 +268,7 @@ class RoverRequest:
     async def get_gold(self, token: str) -> Optional[Union[Dict, int, str]]:
         """获取金币"""
         try:
-            header = copy.deepcopy(await get_headers(token))
+            header = await get_headers(token)
             header.update({"token": token})
             return await self._waves_request(GET_GOLD_URL, "POST", header)
         except Exception as e:
@@ -272,7 +279,7 @@ class RoverRequest:
     ) -> Optional[Union[Dict, int, str]]:
         """点赞"""
         try:
-            header = copy.deepcopy(await get_headers(token))
+            header = await get_headers(token)
             header.update({"token": token})
             data = {
                 "gameId": "3",  # 鸣潮
@@ -288,7 +295,7 @@ class RoverRequest:
     async def do_sign_in(self, token: str) -> Optional[Union[Dict, int, str]]:
         """签到"""
         try:
-            header = copy.deepcopy(await get_headers(token))
+            header = await get_headers(token)
             header.update({"token": token})
             data = {"gameId": "2"}
             return await self._waves_request(SIGN_IN_URL, "POST", header, data=data)
@@ -300,7 +307,7 @@ class RoverRequest:
     ) -> Optional[Union[Dict, int, str]]:
         """浏览"""
         try:
-            header = copy.deepcopy(await get_headers(token))
+            header = await get_headers(token)
             header.update({"token": token})
             data = {
                 "postId": postId,
@@ -316,7 +323,7 @@ class RoverRequest:
     async def do_share(self, token: str) -> Optional[Union[Dict, int, str]]:
         """分享"""
         try:
-            header = copy.deepcopy(await get_headers(token))
+            header = await get_headers(token)
             header.update({"token": token})
             data = {"gameId": "3"}
             return await self._waves_request(SHARE_URL, "POST", header, data=data)
