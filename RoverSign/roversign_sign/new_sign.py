@@ -197,7 +197,7 @@ async def rover_auto_sign_task():
             if user.status:
                 return
 
-            _, token_status = await rover_api.get_daily_info(user.uid, user.user_id)
+            _, token_status = await rover_api.get_daily_info(user.uid, user.cookie)
             if token_status != TokenStatus.VALID:
                 logger.warning(f"自动签到数据刷新失败: {user.uid} {token_status}")
                 return

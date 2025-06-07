@@ -391,7 +391,9 @@ class RoverRequest:
                                 raw_data["data"] = des_data
                             except Exception:
                                 pass
-                        logger.debug(f"url:[{url}] raw_data:{raw_data}")
+                        logger.debug(
+                            f"url:[{url}] params:[{params}] headers:[{header}] data:[{data}] raw_data:{raw_data}"
+                        )
                         return raw_data
             except Exception as e:
                 logger.exception(f"url:[{url}] attempt {attempt + 1} failed", e)
