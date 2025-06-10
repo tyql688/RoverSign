@@ -118,7 +118,6 @@ class WavesUser(User, table=True):
             .where(cls.cookie != "")
             .where(cls.user_id != null())
             .where(cls.user_id != "")
-            .where(cls.status != "无效")
         )
         result = await session.execute(sql)
         data = result.scalars().all()
