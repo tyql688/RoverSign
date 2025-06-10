@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import json as j
 from datetime import datetime
 from typing import Any, Dict, Literal, Optional, Tuple, Union
@@ -16,9 +17,9 @@ from gsuid_core.logger import logger
 from ..api.api import (
     FORUM_LIST_URL,
     GAME_ID,
-    GET_GOLD_URL,
     GET_TASK_URL,
     LIKE_URL,
+    LOGIN_LOG_URL,
     MR_REFRESH_URL,
     POST_DETAIL_URL,
     REFRESH_URL,
@@ -62,7 +63,9 @@ async def check_response(
     if res_msg == "请求成功":
         return None, TokenStatus.NOT_REGISTERED
     elif "重新登录" in res_msg or "登录已过期" in res_msg:
-        if token:
+        if token and waves_id:
+            await WavesUser.mark_cookie_invalid(waves_id, token, "无效")
+        elif token:
             await WavesUser.mark_invalid(token, "无效")
         return None, TokenStatus.INVALID
     elif isinstance(res_data, str) and ("denied" in res_data or "RBAC" in res_data):
@@ -74,6 +77,9 @@ async def check_response(
         return None, TokenStatus.UNKNOWN
 
 
+KURO_VERSION = "2.5.0"
+
+
 async def get_common_header(platform: str = "ios"):
     devCode = generate_random_string()
     header = {
@@ -82,7 +88,7 @@ async def get_common_header(platform: str = "ios"):
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36 Edg/136.0.0.0",
         "devCode": devCode,
         "X-Forwarded-For": generate_random_ipv4_manual(),
-        "version": "2.5.0",
+        "version": KURO_VERSION,
     }
     return header
 
@@ -95,7 +101,7 @@ async def get_headers_ios():
         "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko)  KuroGameBox/2.5.0",
         "devCode": f"{ip}, Mozilla/5.0 (iPhone; CPU iPhone OS 18_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko)  KuroGameBox/2.5.0",
         "X-Forwarded-For": generate_random_ipv4_manual(),
-        "version": "2.5.0",  # getPostDetail 需要版本号
+        "version": KURO_VERSION,  # getPostDetail 需要版本号
     }
     return header
 
@@ -103,19 +109,43 @@ async def get_headers_ios():
 async def get_headers(
     ck: Optional[str] = None,
     platform: Optional[str] = None,
+    queryRoleId: Optional[str] = None,
 ) -> Dict:
     if not ck and not platform:
         return await get_common_header("ios")
 
     bat = ""
     did = ""
+    tokenRoleId = ""
     platform = "ios"
     if ck:
-        waves_user = await WavesUser.select_data_by_cookie(cookie=ck)
-        if waves_user:
-            platform = waves_user.platform
-            bat = waves_user.bat
-            did = waves_user.did
+        # 获取当前role信息
+        if queryRoleId:
+            waves_user = await WavesUser.select_data_by_cookie_and_uid(
+                cookie=ck, uid=queryRoleId
+            )
+            if waves_user:
+                platform = waves_user.platform
+                bat = waves_user.bat
+                did = waves_user.did
+                tokenRoleId = waves_user.uid
+
+                logger.debug(
+                    f"[RoverSign][get_headers.self.{inspect.stack()[1].function}] [queryRoleId:{queryRoleId} tokenRoleId:{tokenRoleId}] 获取成功: did: {did} bat: {bat}"
+                )
+
+        # 2次校验
+        if not tokenRoleId:
+            waves_user = await WavesUser.select_data_by_cookie(cookie=ck)
+            if waves_user:
+                platform = waves_user.platform
+                bat = waves_user.bat
+                did = waves_user.did
+                tokenRoleId = waves_user.uid
+
+                logger.debug(
+                    f"[RoverSign][get_headers.other.{inspect.stack()[1].function}.2] [queryRoleId:{queryRoleId} tokenRoleId:{tokenRoleId}] 获取成功: did: {did} bat: {bat}"
+                )
 
     if platform == "ios":
         header = await get_headers_ios()
@@ -155,7 +185,7 @@ class RoverRequest:
         if not await WavesUser.cookie_validate(waves_id):
             return None, TokenStatus.INVALID
 
-        _, token_status = await self.get_daily_info(waves_id, cookie)
+        _, token_status = await self.login_log(waves_id, cookie)
         if token_status != TokenStatus.VALID:
             return None, token_status
 
@@ -167,7 +197,7 @@ class RoverRequest:
         token: str,
     ) -> Tuple[Optional[str], TokenStatus]:
         """刷新数据"""
-        header = await get_headers(token)
+        header = await get_headers(token, queryRoleId=waves_id)
         header.update({"token": token})
         data = {
             "gameId": GAME_ID,
@@ -177,9 +207,27 @@ class RoverRequest:
         res = await self._waves_request(REFRESH_URL, "POST", header, data=data)
 
         check_res, check_status = await check_response(res, token, waves_id)
-        if check_res is None:
-            if check_status == TokenStatus.INVALID:
-                await WavesUser.mark_invalid(token, "无效")
+        if not check_res:
+            return None, check_status
+        else:
+            return token, TokenStatus.VALID
+
+    async def login_log(self, roleId: str, token: str):
+        header = await get_headers(ck=token, queryRoleId=roleId)
+        header.update(
+            {
+                "token": token,
+                "devCode": header.get("did", ""),
+                "version": KURO_VERSION,
+            }
+        )
+        header.pop("did", None)
+        header.pop("b-at", None)
+
+        data = {}
+        res = await self._waves_request(LOGIN_LOG_URL, "POST", header, data=data)
+        check_res, check_status = await check_response(res, token, roleId)
+        if not check_res:
             return None, check_status
         else:
             return token, TokenStatus.VALID
@@ -188,7 +236,7 @@ class RoverRequest:
         self, roleId: str, token: str, gameId: Union[str, int] = GAME_ID
     ) -> tuple[Optional[Dict], TokenStatus]:
         """每日"""
-        header = await get_headers(token)
+        header = await get_headers(token, queryRoleId=roleId)
         header.update({"token": token})
         data = {
             "type": "1",
@@ -203,7 +251,7 @@ class RoverRequest:
             header,
             data=data,
         )
-        check_res, check_status = await check_response(res, token)
+        check_res, check_status = await check_response(res, token, roleId)
         if not check_res:
             return None, check_status
         else:
@@ -211,7 +259,7 @@ class RoverRequest:
 
     async def sign_in(self, roleId: str, token: str) -> Union[Dict, int]:
         """游戏签到"""
-        header = await get_headers(token)
+        header = await get_headers(token, queryRoleId=roleId)
         header.update({"token": token, "devcode": ""})
         data = {
             "gameId": GAME_ID,
@@ -225,7 +273,7 @@ class RoverRequest:
         self, roleId: str, token: str, serverId: Optional[str] = None
     ) -> Union[Dict, int]:
         """游戏签到"""
-        header = await get_headers(token)
+        header = await get_headers(token, queryRoleId=roleId)
         header.update({"token": token, "devcode": ""})
         data = {
             "gameId": GAME_ID,
@@ -236,9 +284,11 @@ class RoverRequest:
             SIGNIN_TASK_LIST_URL, "POST", header, data=data
         )
 
-    async def get_task(self, token: str) -> Optional[Union[Dict, int, str]]:
+    async def get_task(
+        self, token: str, roleId: str
+    ) -> Optional[Union[Dict, int, str]]:
         try:
-            header = await get_headers(token)
+            header = await get_headers(token, queryRoleId=roleId)
             header.update({"token": token})
             data = {"gameId": "0"}
             return await self._waves_request(GET_TASK_URL, "POST", header, data=data)
@@ -265,21 +315,21 @@ class RoverRequest:
         except Exception as e:
             logger.exception(f"get_form_list token {token}", e)
 
-    async def get_gold(self, token: str) -> Optional[Union[Dict, int, str]]:
-        """获取金币"""
-        try:
-            header = await get_headers(token)
-            header.update({"token": token})
-            return await self._waves_request(GET_GOLD_URL, "POST", header)
-        except Exception as e:
-            logger.exception(f"get_gold token {token}", e)
+    # async def get_gold(self, token: str) -> Optional[Union[Dict, int, str]]:
+    #     """获取金币"""
+    #     try:
+    #         header = await get_headers(token)
+    #         header.update({"token": token})
+    #         return await self._waves_request(GET_GOLD_URL, "POST", header)
+    #     except Exception as e:
+    #         logger.exception(f"get_gold token {token}", e)
 
     async def do_like(
-        self, token: str, postId, toUserId
+        self, roleId: str, token: str, postId, toUserId
     ) -> Optional[Union[Dict, int, str]]:
         """点赞"""
         try:
-            header = await get_headers(token)
+            header = await get_headers(token, queryRoleId=roleId)
             header.update({"token": token})
             data = {
                 "gameId": "3",  # 鸣潮
@@ -292,10 +342,12 @@ class RoverRequest:
         except Exception as e:
             logger.exception(f"do_like token {token}", e)
 
-    async def do_sign_in(self, token: str) -> Optional[Union[Dict, int, str]]:
+    async def do_sign_in(
+        self, roleId: str, token: str
+    ) -> Optional[Union[Dict, int, str]]:
         """签到"""
         try:
-            header = await get_headers(token)
+            header = await get_headers(token, queryRoleId=roleId)
             header.update({"token": token})
             data = {"gameId": "2"}
             return await self._waves_request(SIGN_IN_URL, "POST", header, data=data)
@@ -303,11 +355,11 @@ class RoverRequest:
             logger.exception(f"do_sign_in token {token}", e)
 
     async def do_post_detail(
-        self, token: str, postId: str
+        self, roleId: str, token: str, postId: str
     ) -> Optional[Union[Dict, int, str]]:
         """浏览"""
         try:
-            header = await get_headers(token)
+            header = await get_headers(token, queryRoleId=roleId)
             header.update({"token": token})
             data = {
                 "postId": postId,
@@ -320,27 +372,29 @@ class RoverRequest:
         except Exception as e:
             logger.exception(f"do_post_detail token {token}", e)
 
-    async def do_share(self, token: str) -> Optional[Union[Dict, int, str]]:
+    async def do_share(
+        self, roleId: str, token: str
+    ) -> Optional[Union[Dict, int, str]]:
         """分享"""
         try:
-            header = await get_headers(token)
+            header = await get_headers(token, queryRoleId=roleId)
             header.update({"token": token})
             data = {"gameId": "3"}
             return await self._waves_request(SHARE_URL, "POST", header, data=data)
         except Exception as e:
             logger.exception(f"do_share token {token}", e)
 
-    async def check_bbs_completed(self, token: str) -> bool:
-        """检查bbs任务是否完成"""
-        task_res = await self.get_task(token)
-        if not isinstance(task_res, dict):
-            return False
-        if task_res.get("code") != 200 or not task_res.get("data"):
-            return False
-        for i in task_res["data"]["dailyTask"]:
-            if i["completeTimes"] != i["needActionTimes"]:
-                return False
-        return True
+    # async def check_bbs_completed(self, token: str, roleId: str) -> bool:
+    #     """检查bbs任务是否完成"""
+    #     task_res = await self.get_task(token, roleId)
+    #     if not isinstance(task_res, dict):
+    #         return False
+    #     if task_res.get("code") != 200 or not task_res.get("data"):
+    #         return False
+    #     for i in task_res["data"]["dailyTask"]:
+    #         if i["completeTimes"] != i["needActionTimes"]:
+    #             return False
+    #     return True
 
     async def _waves_request(
         self,

@@ -161,6 +161,17 @@ async def rover_auto_sign_task():
             if not _uid:
                 continue
 
+            is_signed_game = False
+            is_signed_bbs = False
+            rover_sign: Optional[RoverSign] = await RoverSign.get_sign_data(user.uid)
+            if rover_sign and SignStatus.game_sign_complete(rover_sign):
+                is_signed_game = True
+            if rover_sign and SignStatus.bbs_sign_complete(rover_sign):
+                is_signed_bbs = True
+
+            if is_signed_game and is_signed_bbs:
+                continue
+
             if RoverSignConfig.get_config("SigninMaster").data:
                 # 如果 SigninMaster 为 True，添加到 user_list 中
                 need_user_list.append(user)
@@ -197,16 +208,20 @@ async def rover_auto_sign_task():
             if user.status:
                 return
 
-            _, token_status = await rover_api.get_daily_info(user.uid, user.cookie)
+            _, token_status = await rover_api.login_log(user.uid, user.cookie)
             if token_status != TokenStatus.VALID:
-                logger.warning(f"自动签到数据刷新失败: {user.uid} {token_status}")
+                logger.warning(
+                    f"login_log 自动签到数据刷新失败: {user.uid} {token_status}"
+                )
                 return
 
             token, token_status = await rover_api.refresh_data(user.uid, user.cookie)
             if not token:
                 if token_status == TokenStatus.BANNED:
                     raise Exception(f"自动签到失败: {token_status}")
-                logger.warning(f"自动签到数据刷新失败: {user.uid} {token_status}")
+                logger.warning(
+                    f"refresh_data 自动签到数据刷新失败: {user.uid} {token_status}"
+                )
                 return
 
             await asyncio.sleep(random.randint(1, 2))
@@ -243,6 +258,9 @@ async def rover_auto_sign_task():
                 )
 
                 await asyncio.sleep(random.randint(2, 4))
+
+    if not need_user_list:
+        return "暂无需要签到的账号"
 
     max_concurrent: int = RoverSignConfig.get_config("SigninConcurrentNum").data
     semaphore = asyncio.Semaphore(max_concurrent)

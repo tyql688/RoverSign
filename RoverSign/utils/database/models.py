@@ -1,9 +1,9 @@
 from typing import Any, Dict, List, Optional, Type, TypeVar
 
 from pydantic import BaseModel
-from sqlalchemy import delete, null
+from sqlalchemy import delete, null, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import Field, select
+from sqlmodel import Field, col, select
 
 from gsuid_core.utils.database.base_models import (
     BaseIDModel,
@@ -34,6 +34,20 @@ class WavesUser(User, table=True):
     bbs_sign_switch: str = Field(default="off", title="自动社区签到")
     bat: str = Field(default="", title="bat")
     did: str = Field(default="", title="did")
+
+    @classmethod
+    @with_session
+    async def mark_cookie_invalid(
+        cls: Type[T_WavesUser], session: AsyncSession, uid: str, cookie: str, mark: str
+    ):
+        sql = (
+            update(cls)
+            .where(col(cls.uid) == uid)
+            .where(col(cls.cookie) == cookie)
+            .values(status=mark)
+        )
+        await session.execute(sql)
+        return True
 
     @classmethod
     @with_session
@@ -81,10 +95,21 @@ class WavesUser(User, table=True):
             .where(cls.cookie != "")
             .where(cls.user_id != null())
             .where(cls.user_id != "")
+            .where(cls.status != "无效")
         )
         result = await session.execute(sql)
         data = result.scalars().all()
         return list(data)
+
+    @classmethod
+    @with_session
+    async def select_data_by_cookie_and_uid(
+        cls: Type[T_WavesUser], session: AsyncSession, cookie: str, uid: str
+    ) -> Optional[T_WavesUser]:
+        sql = select(cls).where(cls.cookie == cookie, cls.uid == uid)
+        result = await session.execute(sql)
+        data = result.scalars().all()
+        return data[0] if data else None
 
 
 class RoverSignData(BaseModel):

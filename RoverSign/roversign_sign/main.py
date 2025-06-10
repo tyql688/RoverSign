@@ -8,7 +8,6 @@ from gsuid_core.logger import logger
 from gsuid_core.segment import MessageSegment
 
 from ..roversign_config.roversign_config import RoverSignConfig
-from ..utils.api.model import DailyData
 from ..utils.database.models import RoverSign, RoverSignData
 from ..utils.database.states import SignStatus
 from ..utils.fonts.waves_fonts import waves_font_24
@@ -23,9 +22,7 @@ async def get_sign_interval(is_bbs: bool = False):
     if not next_group_sign_time:
         return random.uniform(2, 3) * ratio
     return (
-        random.uniform(
-            float(next_group_sign_time[0]), float(next_group_sign_time[1])
-        )
+        random.uniform(float(next_group_sign_time[0]), float(next_group_sign_time[1]))
         * ratio
     )
 
@@ -39,15 +36,13 @@ async def do_sign_in(taskData, uid, token, rover_sign: RoverSignData):
         return True
 
     # 用户签到
-    sign_in_res = await rover_api.do_sign_in(token)
+    sign_in_res = await rover_api.do_sign_in(uid, token)
     if isinstance(sign_in_res, dict):
         if sign_in_res.get("code") == 200 and sign_in_res.get("data"):
             # 签到成功
             rover_sign.bbs_sign = SignStatus.BBS_SIGN
             return True
-    logger.warning(
-        f"[鸣潮][社区签到]签到失败 uid: {uid} sign_in_res: {sign_in_res}"
-    )
+    logger.warning(f"[鸣潮][社区签到]签到失败 uid: {uid} sign_in_res: {sign_in_res}")
     return False
 
 
@@ -67,7 +62,7 @@ async def do_detail(
     # 浏览帖子
     detail_succ = 0
     for i, post in enumerate(post_list):
-        post_detail_res = await rover_api.do_post_detail(token, post["postId"])
+        post_detail_res = await rover_api.do_post_detail(uid, token, post["postId"])
         if not isinstance(post_detail_res, dict):
             break
         if post_detail_res.get("code") == 200:
@@ -79,10 +74,7 @@ async def do_detail(
         else:
             # 浏览失败
             break
-        if (
-            detail_succ
-            >= taskData["needActionTimes"] - taskData["completeTimes"]
-        ):
+        if detail_succ >= taskData["needActionTimes"] - taskData["completeTimes"]:
             rover_sign.bbs_detail = SignStatus.BBS_DETAIL
             return True
 
@@ -109,24 +101,17 @@ async def do_like(
     # 用户点赞5次
     like_succ = 0
     for i, post in enumerate(post_list):
-        like_res = await rover_api.do_like(
-            token, post["postId"], post["userId"]
-        )
+        like_res = await rover_api.do_like(uid, token, post["postId"], post["userId"])
         if not isinstance(like_res, dict):
             break
         if like_res.get("code") == 200:
             like_succ += 1
             # 点赞成功
-            rover_sign.bbs_like = (
-                rover_sign.bbs_like + 1 if rover_sign.bbs_like else 1
-            )
+            rover_sign.bbs_like = rover_sign.bbs_like + 1 if rover_sign.bbs_like else 1
         else:
             # 点赞失败
             break
-        if (
-            like_succ
-            >= taskData["needActionTimes"] - taskData["completeTimes"]
-        ):
+        if like_succ >= taskData["needActionTimes"] - taskData["completeTimes"]:
             rover_sign.bbs_like = SignStatus.BBS_LIKE
             return True
 
@@ -150,7 +135,7 @@ async def do_share(
         return True
 
     # 分享
-    share_res = await rover_api.do_share(token)
+    share_res = await rover_api.do_share(uid, token)
     if isinstance(share_res, dict):
         if share_res.get("code") == 200:
             # 分享成功
@@ -167,7 +152,7 @@ async def do_single_task(uid, token) -> Union[bool, Dict[str, bool]]:
         rover_sign = RoverSignData.build_bbs_sign(uid)
 
     # 任务列表
-    task_res = await rover_api.get_task(token)
+    task_res = await rover_api.get_task(token, uid)
     if not isinstance(task_res, dict):
         return False
     if task_res.get("code") != 200 or not task_res.get("data"):
@@ -231,9 +216,7 @@ async def do_single_task(uid, token) -> Union[bool, Dict[str, bool]]:
     # 获取到任务列表
     for i in task_res["data"]["dailyTask"]:
         if "签到" in i["remark"]:
-            form_result["用户签到"] = await do_sign_in(
-                i, uid, token, rover_sign
-            )
+            form_result["用户签到"] = await do_sign_in(i, uid, token, rover_sign)
         elif "浏览" in i["remark"]:
             form_result["浏览帖子"] = await do_detail(
                 i, uid, token, post_list, rover_sign
@@ -383,9 +366,7 @@ async def sign_in(uid: str, ck: str, isForce: bool = False) -> str:
 
         if hasSignIn:
             # 已经签到
-            await RoverSign.upsert_rover_sign(
-                RoverSignData.build_game_sign(uid)
-            )
+            await RoverSign.upsert_rover_sign(RoverSignData.build_game_sign(uid))
             logger.debug(f"UID{uid} 该用户今日已签到,跳过...")
             return "今日已签到！请勿重复签到！"
 
@@ -393,24 +374,18 @@ async def sign_in(uid: str, ck: str, isForce: bool = False) -> str:
     if isinstance(sign_in_res, dict):
         if sign_in_res.get("code") == 200 and sign_in_res.get("data"):
             # 签到成功
-            await RoverSign.upsert_rover_sign(
-                RoverSignData.build_game_sign(uid)
-            )
+            await RoverSign.upsert_rover_sign(RoverSignData.build_game_sign(uid))
             return "签到成功！"
         elif sign_in_res.get("code") == 1511:
             # 已经签到
-            await RoverSign.upsert_rover_sign(
-                RoverSignData.build_game_sign(uid)
-            )
+            await RoverSign.upsert_rover_sign(RoverSignData.build_game_sign(uid))
             logger.debug(f"UID{uid} 该用户今日已签到,跳过...")
             return "今日已签到！请勿重复签到！"
     # 签到失败
     return "签到失败！"
 
 
-def create_gradient_background(
-    width, height, start_color, end_color=(255, 255, 255)
-):
+def create_gradient_background(width, height, start_color, end_color=(255, 255, 255)):
     """
     使用 PIL 创建渐变背景
     start_color: 起始颜色，如 (230, 230, 255) 浅蓝
@@ -463,9 +438,7 @@ def create_sign_info_image(text, theme="blue"):
 
     # 绘制装饰边框
     border_color = (200, 200, 200)
-    draw.rectangle(
-        [(10, 10), (width - 10, height - 10)], outline=border_color, width=2
-    )
+    draw.rectangle([(10, 10), (width - 10, height - 10)], outline=border_color, width=2)
 
     # 文本处理
     lines = text.split("\n")

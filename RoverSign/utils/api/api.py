@@ -31,6 +31,7 @@ SIGNIN_TASK_LIST_URL = f"{MAIN_URL}/encourage/signIn/initSignInV2"
 
 # game
 MR_REFRESH_URL = f"{MAIN_URL}/gamer/widget/game3/refresh"
+LOGIN_LOG_URL = f"{MAIN_URL}/user/login/log"
 
 
 def get_local_proxy_url():
