@@ -108,7 +108,7 @@ async def rover_sign_up_handler(bot: Bot, ev: Event):
             to_msg[uid] = msg_temp
             continue
 
-        token, token_status = await rover_api.get_self_token(uid, ev.user_id)
+        token, token_status = await rover_api.get_self_token(uid, ev.user_id, ev.bot_id)
         if not token:
             if token_status == TokenStatus.INVALID:
                 expire_uid.append(uid)

@@ -54,16 +54,39 @@ class WavesUser(User, table=True):
     async def select_cookie(
         cls: Type[T_WavesUser],
         session: AsyncSession,
+        uid: str,
         user_id: str,
-        waves_id: str,
+        bot_id: str,
     ) -> Optional[str]:
-        """
-        根据用户ID和鸣潮UID查询cookie
-        """
-        sql = select(cls).where(cls.user_id == user_id).where(cls.uid == waves_id)
+        sql = select(cls).where(
+            cls.user_id == user_id,
+            cls.uid == uid,
+            cls.bot_id == bot_id,
+        )
         result = await session.execute(sql)
         data = result.scalars().all()
         return data[0].cookie if data else None
+
+    @classmethod
+    @with_session
+    async def select_waves_user(
+        cls: Type[T_WavesUser],
+        session: AsyncSession,
+        uid: str,
+        user_id: str,
+        bot_id: str,
+    ) -> Optional[T_WavesUser]:
+        """
+        根据user_id、uid、bot_id查询数据
+        """
+        sql = select(cls).where(
+            cls.user_id == user_id,
+            cls.uid == uid,
+            cls.bot_id == bot_id,
+        )
+        result = await session.execute(sql)
+        data = result.scalars().all()
+        return data[0] if data else None
 
     @classmethod
     @with_session

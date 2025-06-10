@@ -177,19 +177,20 @@ class RoverRequest:
         self,
         waves_id: str,
         user_id: str,
+        bot_id: str,
     ) -> Tuple[Optional[str], TokenStatus]:
-        cookie = await WavesUser.select_cookie(user_id, waves_id)
-        if not cookie:
+        waves_user = await WavesUser.select_waves_user(user_id, waves_id, bot_id)
+        if not waves_user or not waves_user.cookie:
             return None, TokenStatus.UNBOUND
 
-        if not await WavesUser.cookie_validate(waves_id):
+        if waves_user.status == "无效":
             return None, TokenStatus.INVALID
 
-        _, token_status = await self.login_log(waves_id, cookie)
+        _, token_status = await self.login_log(waves_id, waves_user.cookie)
         if token_status != TokenStatus.VALID:
             return None, token_status
 
-        return await self.refresh_data(waves_id, cookie)
+        return await self.refresh_data(waves_id, waves_user.cookie)
 
     async def refresh_data(
         self,

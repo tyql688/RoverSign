@@ -26,7 +26,7 @@ async def open_switch_func(bot: Bot, ev: Event):
 
     from ..utils.rover_api import rover_api
 
-    token, token_status = await rover_api.get_self_token(uid, ev.user_id)
+    token, token_status = await rover_api.get_self_token(uid, ev.user_id, ev.bot_id)
     if not token:
         from ..utils.errors import WAVES_CODE_101_MSG
 
