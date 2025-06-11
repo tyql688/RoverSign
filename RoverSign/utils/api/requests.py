@@ -179,7 +179,7 @@ class RoverRequest:
         user_id: str,
         bot_id: str,
     ) -> Tuple[Optional[str], TokenStatus]:
-        waves_user = await WavesUser.select_waves_user(user_id, waves_id, bot_id)
+        waves_user = await WavesUser.select_waves_user(waves_id, user_id, bot_id)
         if not waves_user or not waves_user.cookie:
             return None, TokenStatus.UNBOUND
 
