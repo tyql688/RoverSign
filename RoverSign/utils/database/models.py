@@ -1,3 +1,5 @@
+import asyncio
+from functools import wraps
 from typing import Any, Dict, List, Optional, Type, TypeVar
 
 from pydantic import BaseModel
@@ -13,6 +15,19 @@ from gsuid_core.utils.database.base_models import (
 )
 
 from ..util import get_today_date
+
+# 创建一个全局的数据库写锁
+_DB_WRITE_LOCK = asyncio.Lock()
+
+
+def with_lock(func):
+    @wraps(func)
+    async def wrapper(*args, **kwargs):
+        async with _DB_WRITE_LOCK:
+            return await func(*args, **kwargs)
+
+    return wrapper
+
 
 T_WavesBind = TypeVar("T_WavesBind", bound="WavesBind")
 T_WavesUser = TypeVar("T_WavesUser", bound="WavesUser")
@@ -36,6 +51,7 @@ class WavesUser(User, table=True):
     did: str = Field(default="", title="did")
 
     @classmethod
+    @with_lock
     @with_session
     async def mark_cookie_invalid(
         cls: Type[T_WavesUser], session: AsyncSession, uid: str, cookie: str, mark: str
@@ -189,6 +205,7 @@ class RoverSign(BaseIDModel, table=True):
         return result.scalars().first()
 
     @classmethod
+    @with_lock
     @with_session
     async def upsert_rover_sign(
         cls: Type[T_RoverSign],
@@ -228,7 +245,6 @@ class RoverSign(BaseIDModel, table=True):
             result = cls(**rover_sign_data.model_dump())
             session.add(result)
 
-        await session.commit()
         return result
 
     @classmethod
@@ -257,6 +273,7 @@ class RoverSign(BaseIDModel, table=True):
         return list(result.scalars().all())
 
     @classmethod
+    @with_lock
     @with_session
     async def clear_sign_record(
         cls: Type[T_RoverSign],
@@ -266,4 +283,3 @@ class RoverSign(BaseIDModel, table=True):
         """清除签到记录"""
         sql = delete(cls).where(getattr(cls, "date") <= date)
         await session.execute(sql)
-        await session.commit()
