@@ -1,6 +1,6 @@
 import asyncio
 import random
-from typing import Dict, List, Literal, Optional
+from typing import Dict, List, Literal, Optional, Union
 
 from gsuid_core.bot import Bot
 from gsuid_core.logger import logger
@@ -32,6 +32,7 @@ from .main import (
 SIGN_STATUS = {
     True: "✅ 已完成",
     False: "❌ 未完成",
+    "skip": "🚫 请勿重复签到",
 }
 
 
@@ -92,7 +93,7 @@ async def rover_sign_up_handler(bot: Bot, ev: Event):
     to_msg = {}
     expire_uid = []
     for uid in uid_list:
-        msg_temp = {
+        msg_temp: Dict[str, Union[bool, str]] = {
             "signed": False,
             "bbs_signed": False,
         }
@@ -100,9 +101,9 @@ async def rover_sign_up_handler(bot: Bot, ev: Event):
         rover_sign: Optional[RoverSign] = await RoverSign.get_sign_data(uid)
         if rover_sign:
             if SignStatus.game_sign_complete(rover_sign):
-                msg_temp["signed"] = True
+                msg_temp["signed"] = "skip"
             if SignStatus.bbs_sign_complete(rover_sign):
-                msg_temp["bbs_signed"] = True
+                msg_temp["bbs_signed"] = "skip"
 
         if msg_temp["signed"] and msg_temp["bbs_signed"]:
             to_msg[uid] = msg_temp
