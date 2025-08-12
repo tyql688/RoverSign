@@ -1,8 +1,7 @@
 import asyncio
-import inspect
-import json as j
+import json
 from datetime import datetime
-from typing import Any, Dict, Literal, Optional, Tuple, Union
+from typing import Any, Dict, List, Literal, Mapping, Optional, Union
 
 from aiohttp import (
     ClientSession,
@@ -23,6 +22,7 @@ from ..api.api import (
     MR_REFRESH_URL,
     POST_DETAIL_URL,
     REFRESH_URL,
+    REQUEST_TOKEN,
     SERVER_ID,
     SERVER_ID_NET,
     SHARE_URL,
@@ -31,131 +31,10 @@ from ..api.api import (
     SIGNIN_URL,
     get_local_proxy_url,
 )
-from ..constant import TokenStatus
 from ..database.models import WavesUser
 from ..errors import ROVER_CODE_999
-from ..util import (
-    generate_random_ipv4_manual,
-    generate_random_string,
-    get_public_ip,
-    timed_async_cache,
-)
-
-
-async def check_response(
-    res: Union[Dict, int],
-    token: Optional[str] = None,
-    waves_id: Optional[str] = None,
-) -> tuple[Optional[Dict], TokenStatus]:
-    if not isinstance(res, dict):
-        logger.warning(f"[{waves_id}] 系统错误: {res}")
-        return None, TokenStatus.ERROR
-
-    res_code = res.get("code")
-    res_data = res.get("data", "")
-    res_msg = res.get("msg", "") or ""
-
-    if res_code == 200:
-        return res_data, TokenStatus.VALID
-
-    logger.warning(f"[RoverSign][{waves_id}] 请求失败 msg:{res_msg} data:{res_data}")
-
-    if res_msg == "请求成功":
-        return None, TokenStatus.NOT_REGISTERED
-    elif "重新登录" in res_msg or "登录已过期" in res_msg:
-        if token and waves_id:
-            await WavesUser.mark_cookie_invalid(waves_id, token, "无效")
-        elif token:
-            await WavesUser.mark_invalid(token, "无效")
-        return None, TokenStatus.INVALID
-    elif isinstance(res_data, str) and ("denied" in res_data or "RBAC" in res_data):
-        return None, TokenStatus.BANNED
-    elif res_code == 10902:
-        # 新错误。暂不归类。
-        return None, TokenStatus.ERROR
-    else:
-        return None, TokenStatus.UNKNOWN
-
-
-KURO_VERSION = "2.5.0"
-
-
-async def get_common_header(platform: str = "ios"):
-    devCode = generate_random_string()
-    header = {
-        "source": platform,
-        "Content-Type": "application/x-www-form-urlencoded; charset=utf-8",
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36 Edg/136.0.0.0",
-        "devCode": devCode,
-        "X-Forwarded-For": generate_random_ipv4_manual(),
-        "version": KURO_VERSION,
-    }
-    return header
-
-
-async def get_headers_ios():
-    ip = await get_public_ip()
-    header = {
-        "source": "ios",
-        "Content-Type": "application/x-www-form-urlencoded; charset=utf-8",
-        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko)  KuroGameBox/2.5.0",
-        "devCode": f"{ip}, Mozilla/5.0 (iPhone; CPU iPhone OS 18_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko)  KuroGameBox/2.5.0",
-        "X-Forwarded-For": generate_random_ipv4_manual(),
-        "version": KURO_VERSION,  # getPostDetail 需要版本号
-    }
-    return header
-
-
-async def get_headers(
-    ck: Optional[str] = None,
-    platform: Optional[str] = None,
-    queryRoleId: Optional[str] = None,
-) -> Dict:
-    if not ck and not platform:
-        return await get_common_header("ios")
-
-    bat = ""
-    did = ""
-    tokenRoleId = ""
-    platform = "ios"
-    if ck:
-        # 获取当前role信息
-        if queryRoleId:
-            waves_user = await WavesUser.select_data_by_cookie_and_uid(
-                cookie=ck, uid=queryRoleId
-            )
-            if waves_user:
-                platform = waves_user.platform
-                bat = waves_user.bat
-                did = waves_user.did
-                tokenRoleId = waves_user.uid
-
-                logger.debug(
-                    f"[RoverSign][get_headers.self.{inspect.stack()[1].function}] [queryRoleId:{queryRoleId} tokenRoleId:{tokenRoleId}] 获取成功: did: {did} bat: {bat}"
-                )
-
-        # 2次校验
-        if not tokenRoleId:
-            waves_user = await WavesUser.select_data_by_cookie(cookie=ck)
-            if waves_user:
-                platform = waves_user.platform
-                bat = waves_user.bat
-                did = waves_user.did
-                tokenRoleId = waves_user.uid
-
-                logger.debug(
-                    f"[RoverSign][get_headers.other.{inspect.stack()[1].function}.2] [queryRoleId:{queryRoleId} tokenRoleId:{tokenRoleId}] 获取成功: did: {did} bat: {bat}"
-                )
-
-    if platform == "ios":
-        header = await get_headers_ios()
-    else:
-        header = await get_common_header(platform or "ios")
-    if bat:
-        header.update({"b-at": bat})
-    if did:
-        header.update({"did": did})
-    return header
+from ..util import timed_async_cache
+from .request_util import KURO_VERSION, KuroApiResp, get_base_header
 
 
 class RoverRequest:
@@ -173,72 +52,130 @@ class RoverRequest:
         else:
             return SERVER_ID
 
-    async def get_self_token(
-        self,
-        waves_id: str,
-        user_id: str,
-        bot_id: str,
-    ) -> Tuple[Optional[str], TokenStatus]:
-        waves_user = await WavesUser.select_waves_user(waves_id, user_id, bot_id)
+    async def refresh_bat_token(self, waves_user: WavesUser):
+        success, access_token = await self.get_request_token(
+            waves_user.uid, waves_user.cookie, waves_user.did
+        )
+        if not success:
+            return waves_user
+
+        waves_user.bat = access_token
+        await WavesUser.update_data_by_data(
+            select_data={
+                "user_id": waves_user.user_id,
+                "bot_id": waves_user.bot_id,
+                "uid": waves_user.uid,
+            },
+            update_data={"bat": access_token},
+        )
+        return waves_user
+
+    async def get_used_headers(self, cookie: str, uid: str) -> Dict[str, Any]:
+        headers = {
+            "token": cookie,
+            "did": "",
+            "b-at": "",
+        }
+        waves_user: Optional[WavesUser] = await WavesUser.select_data_by_cookie_and_uid(
+            cookie=cookie,
+            uid=uid,
+        ) or await WavesUser.select_data_by_cookie(
+            cookie=cookie,
+        )
+
+        if not waves_user:
+            return headers
+
+        headers["did"] = waves_user.did or ""
+        headers["b-at"] = waves_user.bat or ""
+        return headers
+
+    async def get_self_waves_ck(
+        self, uid: str, user_id: str, bot_id: str
+    ) -> Optional[str]:
+        # 返回空串 表示绑定已失效
+        waves_user = await WavesUser.select_waves_user(uid, user_id, bot_id)
         if not waves_user or not waves_user.cookie:
-            return None, TokenStatus.UNBOUND
+            return ""
 
         if waves_user.status == "无效":
-            return None, TokenStatus.INVALID
+            return ""
 
-        _, token_status = await self.login_log(waves_id, waves_user.cookie)
-        if token_status != TokenStatus.VALID:
-            return None, token_status
+        data = await self.login_log(uid, waves_user.cookie)
+        if not data.success:
+            await data.mark_cookie_invalid(uid, waves_user.cookie)
+            return ""
 
-        return await self.refresh_data(waves_id, waves_user.cookie)
+        data = await self.refresh_data(uid, waves_user.cookie)
+        if not data.success:
+            if data.is_bat_token_invalid:
+                if waves_user := await self.refresh_bat_token(waves_user):
+                    return waves_user.cookie
+            else:
+                await data.mark_cookie_invalid(uid, waves_user.cookie)
+            return ""
+
+        return waves_user.cookie
 
     async def refresh_data(
-        self,
-        waves_id: str,
-        token: str,
-    ) -> Tuple[Optional[str], TokenStatus]:
+        self, roleId: str, token: str, serverId: Optional[str] = None
+    ):
         """刷新数据"""
-        header = await get_headers(token, queryRoleId=waves_id)
-        header.update({"token": token})
+        header = await get_base_header()
+        used_headers = await self.get_used_headers(cookie=token, uid=roleId)
+        header.update(used_headers)
         data = {
             "gameId": GAME_ID,
-            "serverId": SERVER_ID,
-            "roleId": waves_id,
+            "serverId": self.get_server_id(roleId, serverId),
+            "roleId": roleId,
         }
-        res = await self._waves_request(REFRESH_URL, "POST", header, data=data)
-
-        check_res, check_status = await check_response(res, token, waves_id)
-        if not check_res:
-            return None, check_status
-        else:
-            return token, TokenStatus.VALID
+        return await self._waves_request(REFRESH_URL, "POST", header, data=data)
 
     async def login_log(self, roleId: str, token: str):
-        header = await get_headers(ck=token, queryRoleId=roleId)
+        """登录校验"""
+        header = await get_base_header()
+        used_headers = await self.get_used_headers(cookie=token, uid=roleId)
         header.update(
             {
                 "token": token,
-                "devCode": header.get("did", ""),
+                "devCode": used_headers.get("did", ""),
                 "version": KURO_VERSION,
             }
         )
-        header.pop("did", None)
-        header.pop("b-at", None)
 
         data = {}
-        res = await self._waves_request(LOGIN_LOG_URL, "POST", header, data=data)
-        check_res, check_status = await check_response(res, token, roleId)
-        if not check_res:
-            return None, check_status
-        else:
-            return token, TokenStatus.VALID
+        return await self._waves_request(LOGIN_LOG_URL, "POST", header, data=data)
+
+    async def get_request_token(
+        self, roleId: str, token: str, did: str, serverId: Optional[str] = None
+    ) -> tuple[bool, str]:
+        """请求token"""
+        header = await get_base_header()
+        header.update(
+            {
+                "token": token,
+                "did": did,
+                "b-at": "",
+            }
+        )
+        data = {
+            "serverId": self.get_server_id(roleId, serverId),
+            "roleId": roleId,
+        }
+        raw_data = await self._waves_request(REQUEST_TOKEN, "POST", header, data=data)
+        if raw_data.success and isinstance(raw_data.data, dict):
+            if accessToken := raw_data.data.get("accessToken", ""):
+                return True, accessToken
+
+        return False, ""
 
     async def get_daily_info(
         self, roleId: str, token: str, gameId: Union[str, int] = GAME_ID
-    ) -> tuple[Optional[Dict], TokenStatus]:
+    ):
         """每日"""
-        header = await get_headers(token, queryRoleId=roleId)
-        header.update({"token": token})
+        header = await get_base_header()
+        used_headers = await self.get_used_headers(cookie=token, uid=roleId)
+        header.update(used_headers)
         data = {
             "type": "1",
             "sizeType": "2",
@@ -246,22 +183,19 @@ class RoverRequest:
             "serverId": self.get_server_id(roleId),
             "roleId": roleId,
         }
-        res = await self._waves_request(
+        return await self._waves_request(
             MR_REFRESH_URL,
             "POST",
             header,
             data=data,
         )
-        check_res, check_status = await check_response(res, token, roleId)
-        if not check_res:
-            return None, check_status
-        else:
-            return check_res, TokenStatus.VALID
 
-    async def sign_in(self, roleId: str, token: str) -> Union[Dict, int]:
+    async def sign_in(self, roleId: str, token: str):
         """游戏签到"""
-        header = await get_headers(token, queryRoleId=roleId)
-        header.update({"token": token, "devcode": ""})
+        header = await get_base_header()
+        used_headers = await self.get_used_headers(cookie=token, uid=roleId)
+        header.update(used_headers)
+        header.update({"devcode": ""})
         data = {
             "gameId": GAME_ID,
             "serverId": SERVER_ID,
@@ -272,10 +206,12 @@ class RoverRequest:
 
     async def sign_in_task_list(
         self, roleId: str, token: str, serverId: Optional[str] = None
-    ) -> Union[Dict, int]:
+    ):
         """游戏签到"""
-        header = await get_headers(token, queryRoleId=roleId)
-        header.update({"token": token, "devcode": ""})
+        header = await get_base_header()
+        used_headers = await self.get_used_headers(cookie=token, uid=roleId)
+        header.update(used_headers)
+        header.update({"devcode": ""})
         data = {
             "gameId": GAME_ID,
             "serverId": SERVER_ID,
@@ -285,12 +221,11 @@ class RoverRequest:
             SIGNIN_TASK_LIST_URL, "POST", header, data=data
         )
 
-    async def get_task(
-        self, token: str, roleId: str
-    ) -> Optional[Union[Dict, int, str]]:
+    async def get_task(self, token: str, roleId: str):
         try:
-            header = await get_headers(token, queryRoleId=roleId)
-            header.update({"token": token})
+            header = await get_base_header()
+            used_headers = await self.get_used_headers(cookie=token, uid=roleId)
+            header.update(used_headers)
             data = {"gameId": "0"}
             return await self._waves_request(GET_TASK_URL, "POST", header, data=data)
         except Exception as e:
@@ -300,10 +235,12 @@ class RoverRequest:
         3600,
         lambda x: x and isinstance(x, dict) and x.get("code") == 200,
     )
-    async def get_form_list(self, token: str) -> Optional[Union[Dict, int, str]]:
+    async def get_form_list(self, token: str):
         try:
-            header = await get_headers(token)
-            header.update({"token": token, "version": "2.25"})
+            header = await get_base_header()
+            used_headers = await self.get_used_headers(cookie=token, uid="")
+            header.update(used_headers)
+            header.update({"version": "2.25"})
             data = {
                 "pageIndex": "1",
                 "pageSize": "20",
@@ -319,19 +256,19 @@ class RoverRequest:
     # async def get_gold(self, token: str) -> Optional[Union[Dict, int, str]]:
     #     """获取金币"""
     #     try:
-    #         header = await get_headers(token)
-    #         header.update({"token": token})
+    #         header = await get_base_header()
+    #         used_headers = await self.get_used_headers(cookie=token, uid="")
+    #         header.update(used_headers)
     #         return await self._waves_request(GET_GOLD_URL, "POST", header)
     #     except Exception as e:
     #         logger.exception(f"get_gold token {token}", e)
 
-    async def do_like(
-        self, roleId: str, token: str, postId, toUserId
-    ) -> Optional[Union[Dict, int, str]]:
+    async def do_like(self, roleId: str, token: str, postId, toUserId):
         """点赞"""
         try:
-            header = await get_headers(token, queryRoleId=roleId)
-            header.update({"token": token})
+            header = await get_base_header()
+            used_headers = await self.get_used_headers(cookie=token, uid=roleId)
+            header.update(used_headers)
             data = {
                 "gameId": "3",  # 鸣潮
                 "likeType": "1",  # 1.点赞帖子 2.评论
@@ -343,43 +280,43 @@ class RoverRequest:
         except Exception as e:
             logger.exception(f"do_like token {token}", e)
 
-    async def do_sign_in(
-        self, roleId: str, token: str
-    ) -> Optional[Union[Dict, int, str]]:
+    async def do_sign_in(self, roleId: str, token: str):
         """签到"""
         try:
-            header = await get_headers(token, queryRoleId=roleId)
-            header.update({"token": token})
+            header = await get_base_header()
+            used_headers = await self.get_used_headers(cookie=token, uid=roleId)
+            header.update(used_headers)
             data = {"gameId": "2"}
             return await self._waves_request(SIGN_IN_URL, "POST", header, data=data)
         except Exception as e:
             logger.exception(f"do_sign_in token {token}", e)
 
-    async def do_post_detail(
-        self, roleId: str, token: str, postId: str
-    ) -> Optional[Union[Dict, int, str]]:
+    async def do_post_detail(self, roleId: str, token: str, postId: str):
         """浏览"""
         try:
-            header = await get_headers(token, queryRoleId=roleId)
-            header.update({"token": token})
+            header = await get_base_header()
+            used_headers = await self.get_used_headers(cookie=token, uid=roleId)
+            header.update(
+                {
+                    "token": token,
+                    "devCode": used_headers.get("did", ""),
+                }
+            )
             data = {
                 "postId": postId,
                 "showOrderType": "2",
                 "isOnlyPublisher": "0",
             }
-            if header.get("did"):
-                data.update({"devCode": header.get("did", "")})
             return await self._waves_request(POST_DETAIL_URL, "POST", header, data=data)
         except Exception as e:
             logger.exception(f"do_post_detail token {token}", e)
 
-    async def do_share(
-        self, roleId: str, token: str
-    ) -> Optional[Union[Dict, int, str]]:
+    async def do_share(self, roleId: str, token: str):
         """分享"""
         try:
-            header = await get_headers(token, queryRoleId=roleId)
-            header.update({"token": token})
+            header = await get_base_header()
+            used_headers = await self.get_used_headers(cookie=token, uid=roleId)
+            header.update(used_headers)
             data = {"gameId": "3"}
             return await self._waves_request(SHARE_URL, "POST", header, data=data)
         except Exception as e:
@@ -401,15 +338,15 @@ class RoverRequest:
         self,
         url: str,
         method: Literal["GET", "POST"] = "GET",
-        header=None,
+        header: Optional[Mapping[str, str]] = None,
         params: Optional[Dict[str, Any]] = None,
-        json: Optional[Dict[str, Any]] = None,
+        json_data: Optional[Dict[str, Any]] = None,
         data: Optional[Union[FormData, Dict[str, Any]]] = None,
         max_retries: int = 3,
         retry_delay: float = 1.0,
-    ) -> Union[Dict, int]:
+    ) -> KuroApiResp[Union[str, Dict[str, Any], List[Any]]]:
         if header is None:
-            header = await get_headers()
+            header = await get_base_header()
 
         proxy_url = get_local_proxy_url()
 
@@ -423,7 +360,7 @@ class RoverRequest:
                         url=url,
                         headers=header,
                         params=params,
-                        json=json,
+                        json=json_data,
                         data=data,
                         proxy=proxy_url,
                         timeout=ClientTimeout(10),
@@ -432,26 +369,21 @@ class RoverRequest:
                             raw_data = await resp.json()
                         except ContentTypeError:
                             _raw_data = await resp.text()
-                            raw_data = {
-                                "code": ROVER_CODE_999,
-                                "data": _raw_data,
-                            }
-                        if (
-                            isinstance(raw_data, dict)
-                            and "data" in raw_data
-                            and isinstance(raw_data["data"], str)
-                        ):
+                            raw_data = {"code": ROVER_CODE_999, "data": _raw_data}
+                        if isinstance(raw_data, dict):
                             try:
-                                des_data = j.loads(raw_data["data"])
-                                raw_data["data"] = des_data
+                                raw_data["data"] = json.loads(raw_data.get("data", ""))
                             except Exception:
                                 pass
                         logger.debug(
                             f"url:[{url}] params:[{params}] headers:[{header}] data:[{data}] raw_data:{raw_data}"
                         )
-                        return raw_data
+                        return KuroApiResp[Any].model_validate(raw_data)
             except Exception as e:
                 logger.exception(f"url:[{url}] attempt {attempt + 1} failed", e)
                 if attempt < max_retries - 1:
                     await asyncio.sleep(retry_delay)
-        return ROVER_CODE_999
+
+        return KuroApiResp[Any].err(
+            "请求服务器失败，已达最大重试次数", code=ROVER_CODE_999
+        )

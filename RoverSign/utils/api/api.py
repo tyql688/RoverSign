@@ -33,6 +33,8 @@ SIGNIN_TASK_LIST_URL = f"{MAIN_URL}/encourage/signIn/initSignInV2"
 MR_REFRESH_URL = f"{MAIN_URL}/gamer/widget/game3/refresh"
 LOGIN_LOG_URL = f"{MAIN_URL}/user/login/log"
 
+REQUEST_TOKEN = f"{MAIN_URL}/aki/roleBox/requestToken"
+
 
 def get_local_proxy_url():
     from ...roversign_config.roversign_config import RoverSignConfig

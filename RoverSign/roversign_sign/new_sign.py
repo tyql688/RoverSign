@@ -10,7 +10,7 @@ from gsuid_core.utils.boardcast.models import BoardCastMsg, BoardCastMsgDict
 
 from ..roversign_config.roversign_config import RoverSignConfig
 from ..utils.boardcast import send_board_cast_msg
-from ..utils.constant import BoardcastTypeEnum, TokenStatus
+from ..utils.constant import BoardcastTypeEnum
 from ..utils.database.models import (
     RoverSign,
     RoverSignData,
@@ -53,8 +53,8 @@ async def action_sign_in(uid: str, token: str):
     if not await get_signin_config():
         return signed
     sign_res = await rover_api.sign_in_task_list(uid, token)
-    if isinstance(sign_res, dict):
-        signed = sign_res.get("data", {}).get("isSigIn", False)
+    if sign_res.success and sign_res.data and isinstance(sign_res.data, dict):
+        signed = sign_res.data.get("isSigIn", False)
 
     if not signed:
         res = await sign_in(uid, token, isForce=True)
@@ -109,10 +109,9 @@ async def rover_sign_up_handler(bot: Bot, ev: Event):
             to_msg[uid] = msg_temp
             continue
 
-        token, token_status = await rover_api.get_self_token(uid, ev.user_id, ev.bot_id)
+        token = await rover_api.get_self_waves_ck(uid, ev.user_id, ev.bot_id)
         if not token:
-            if token_status == TokenStatus.INVALID:
-                expire_uid.append(uid)
+            expire_uid.append(uid)
             continue
 
         # 签到状态
@@ -209,20 +208,17 @@ async def rover_auto_sign_task():
             if user.status:
                 return
 
-            _, token_status = await rover_api.login_log(user.uid, user.cookie)
-            if token_status != TokenStatus.VALID:
-                logger.warning(
-                    f"login_log 自动签到数据刷新失败: {user.uid} {token_status}"
-                )
+            login_res = await rover_api.login_log(user.uid, user.cookie)
+            if not login_res.success:
                 return
 
-            token, token_status = await rover_api.refresh_data(user.uid, user.cookie)
-            if not token:
-                if token_status == TokenStatus.BANNED:
-                    raise Exception(f"自动签到失败: {token_status}")
-                logger.warning(
-                    f"refresh_data 自动签到数据刷新失败: {user.uid} {token_status}"
-                )
+            refresh_res = await rover_api.refresh_data(user.uid, user.cookie)
+            if not refresh_res.success:
+                if refresh_res.is_bat_token_invalid:
+                    if waves_user := await rover_api.refresh_bat_token(user):
+                        user.cookie = waves_user.cookie
+                else:
+                    await refresh_res.mark_cookie_invalid(user.uid, user.cookie)
                 return
 
             await asyncio.sleep(random.randint(1, 2))

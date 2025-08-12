@@ -37,11 +37,12 @@ async def do_sign_in(taskData, uid, token, rover_sign: RoverSignData):
 
     # 用户签到
     sign_in_res = await rover_api.do_sign_in(uid, token)
-    if isinstance(sign_in_res, dict):
-        if sign_in_res.get("code") == 200 and sign_in_res.get("data"):
-            # 签到成功
-            rover_sign.bbs_sign = SignStatus.BBS_SIGN
-            return True
+    if not sign_in_res or not sign_in_res.success:
+        return False
+    if sign_in_res.code == 200:
+        # 签到成功
+        rover_sign.bbs_sign = SignStatus.BBS_SIGN
+        return True
     logger.warning(f"[鸣潮][社区签到]签到失败 uid: {uid} sign_in_res: {sign_in_res}")
     return False
 
@@ -63,9 +64,9 @@ async def do_detail(
     detail_succ = 0
     for i, post in enumerate(post_list):
         post_detail_res = await rover_api.do_post_detail(uid, token, post["postId"])
-        if not isinstance(post_detail_res, dict):
+        if not post_detail_res or not post_detail_res.success:
             break
-        if post_detail_res.get("code") == 200:
+        if post_detail_res.code == 200:
             detail_succ += 1
             # 浏览成功
             rover_sign.bbs_detail = (
@@ -102,9 +103,9 @@ async def do_like(
     like_succ = 0
     for i, post in enumerate(post_list):
         like_res = await rover_api.do_like(uid, token, post["postId"], post["userId"])
-        if not isinstance(like_res, dict):
+        if not like_res or not like_res.success:
             break
-        if like_res.get("code") == 200:
+        if like_res.code == 200:
             like_succ += 1
             # 点赞成功
             rover_sign.bbs_like = rover_sign.bbs_like + 1 if rover_sign.bbs_like else 1
@@ -136,11 +137,12 @@ async def do_share(
 
     # 分享
     share_res = await rover_api.do_share(uid, token)
-    if isinstance(share_res, dict):
-        if share_res.get("code") == 200:
-            # 分享成功
-            rover_sign.bbs_share = SignStatus.BBS_SHARE
-            return True
+    if not share_res or not share_res.success:
+        return False
+    if share_res.code == 200:
+        # 分享成功
+        rover_sign.bbs_share = SignStatus.BBS_SHARE
+        return True
 
     logger.exception(f"[鸣潮][社区签到]分享失败 uid: {uid}")
     return False
@@ -153,12 +155,12 @@ async def do_single_task(uid, token) -> Union[bool, Dict[str, bool]]:
 
     # 任务列表
     task_res = await rover_api.get_task(token, uid)
-    if not isinstance(task_res, dict):
+    if not task_res or not task_res.success:
         return False
-    if task_res.get("code") != 200 or not task_res.get("data"):
+    if not task_res.data or not isinstance(task_res.data, dict):
         return False
 
-    for i in task_res["data"]["dailyTask"]:
+    for i in task_res.data["dailyTask"]:
         if i["completeTimes"] != i["needActionTimes"]:
             break
     else:
@@ -181,7 +183,7 @@ async def do_single_task(uid, token) -> Union[bool, Dict[str, bool]]:
 
     # check 1
     need_post_list_flag = False
-    for i in task_res["data"]["dailyTask"]:
+    for i in task_res.data["dailyTask"]:
         if i["completeTimes"] == i["needActionTimes"]:
             continue
         if "签到" not in i["remark"] or "分享" not in i["remark"]:
@@ -191,11 +193,12 @@ async def do_single_task(uid, token) -> Union[bool, Dict[str, bool]]:
     if need_post_list_flag:
         # 获取帖子
         form_list_res = await rover_api.get_form_list(token)
-        if isinstance(form_list_res, dict):
-            if form_list_res.get("code") == 200 and form_list_res.get("data"):
-                # 获取到帖子列表
-                post_list = form_list_res["data"]["postList"]
-                random.shuffle(post_list)
+        if not form_list_res or not form_list_res.success:
+            return False
+        if form_list_res.data and isinstance(form_list_res.data, dict):
+            # 获取到帖子列表
+            post_list = form_list_res.data["postList"]
+            random.shuffle(post_list)
         if not post_list:
             logger.exception(
                 f"[鸣潮][社区签到]获取帖子列表失败 uid: {uid} res: {form_list_res}"
@@ -211,10 +214,10 @@ async def do_single_task(uid, token) -> Union[bool, Dict[str, bool]]:
     }
 
     # 随机打乱任务列表
-    random.shuffle(task_res["data"]["dailyTask"])
+    random.shuffle(task_res.data["dailyTask"])
 
     # 获取到任务列表
-    for i in task_res["data"]["dailyTask"]:
+    for i in task_res.data["dailyTask"]:
         if "签到" in i["remark"]:
             form_result["用户签到"] = await do_sign_in(i, uid, token, rover_sign)
         elif "浏览" in i["remark"]:
@@ -361,8 +364,8 @@ async def sign_in(uid: str, ck: str, isForce: bool = False) -> str:
     if not isForce:
         # 获取签到状态
         res = await rover_api.sign_in_task_list(uid, ck)
-        if isinstance(res, dict):
-            hasSignIn = res.get("data", {}).get("isSigIn", False)
+        if res.success and res.data and isinstance(res.data, dict):
+            hasSignIn = res.data.get("isSigIn", False)
 
         if hasSignIn:
             # 已经签到
@@ -371,16 +374,16 @@ async def sign_in(uid: str, ck: str, isForce: bool = False) -> str:
             return "今日已签到！请勿重复签到！"
 
     sign_in_res = await rover_api.sign_in(uid, ck)
-    if isinstance(sign_in_res, dict):
-        if sign_in_res.get("code") == 200 and sign_in_res.get("data"):
-            # 签到成功
-            await RoverSign.upsert_rover_sign(RoverSignData.build_game_sign(uid))
-            return "签到成功！"
-        elif sign_in_res.get("code") == 1511:
-            # 已经签到
-            await RoverSign.upsert_rover_sign(RoverSignData.build_game_sign(uid))
-            logger.debug(f"UID{uid} 该用户今日已签到,跳过...")
-            return "今日已签到！请勿重复签到！"
+    if sign_in_res.success:
+        # 签到成功
+        await RoverSign.upsert_rover_sign(RoverSignData.build_game_sign(uid))
+        return "签到成功！"
+    elif sign_in_res.code == 1511:
+        # 已经签到
+        await RoverSign.upsert_rover_sign(RoverSignData.build_game_sign(uid))
+        logger.debug(f"UID{uid} 该用户今日已签到,跳过...")
+        return "今日已签到！请勿重复签到！"
+
     # 签到失败
     return "签到失败！"
 
