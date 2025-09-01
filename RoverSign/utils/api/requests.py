@@ -70,12 +70,16 @@ class RoverRequest:
         )
         return waves_user
 
-    async def get_used_headers(self, cookie: str, uid: str) -> Dict[str, Any]:
+    async def get_used_headers(
+        self, cookie: str, uid: str, needToken: bool = False
+    ) -> Dict[str, Any]:
         headers = {
-            "token": cookie,
+            # "token": cookie,
             "did": "",
             "b-at": "",
         }
+        if needToken:
+            headers["token"] = cookie
         waves_user: Optional[WavesUser] = await WavesUser.select_data_by_cookie_and_uid(
             cookie=cookie,
             uid=uid,
@@ -193,7 +197,9 @@ class RoverRequest:
     async def sign_in(self, roleId: str, token: str):
         """游戏签到"""
         header = await get_base_header()
-        used_headers = await self.get_used_headers(cookie=token, uid=roleId)
+        used_headers = await self.get_used_headers(
+            cookie=token, uid=roleId, needToken=True
+        )
         header.update(used_headers)
         header.update({"devcode": ""})
         data = {
@@ -209,7 +215,9 @@ class RoverRequest:
     ):
         """游戏签到"""
         header = await get_base_header()
-        used_headers = await self.get_used_headers(cookie=token, uid=roleId)
+        used_headers = await self.get_used_headers(
+            cookie=token, uid=roleId, needToken=True
+        )
         header.update(used_headers)
         header.update({"devcode": ""})
         data = {
@@ -224,7 +232,9 @@ class RoverRequest:
     async def get_task(self, token: str, roleId: str):
         try:
             header = await get_base_header()
-            used_headers = await self.get_used_headers(cookie=token, uid=roleId)
+            used_headers = await self.get_used_headers(
+                cookie=token, uid=roleId, needToken=True
+            )
             header.update(used_headers)
             data = {"gameId": "0"}
             return await self._waves_request(GET_TASK_URL, "POST", header, data=data)
@@ -267,7 +277,9 @@ class RoverRequest:
         """点赞"""
         try:
             header = await get_base_header()
-            used_headers = await self.get_used_headers(cookie=token, uid=roleId)
+            used_headers = await self.get_used_headers(
+                cookie=token, uid=roleId, needToken=True
+            )
             header.update(used_headers)
             data = {
                 "gameId": "3",  # 鸣潮
@@ -284,7 +296,9 @@ class RoverRequest:
         """签到"""
         try:
             header = await get_base_header()
-            used_headers = await self.get_used_headers(cookie=token, uid=roleId)
+            used_headers = await self.get_used_headers(
+                cookie=token, uid=roleId, needToken=True
+            )
             header.update(used_headers)
             data = {"gameId": "2"}
             return await self._waves_request(SIGN_IN_URL, "POST", header, data=data)
@@ -315,7 +329,9 @@ class RoverRequest:
         """分享"""
         try:
             header = await get_base_header()
-            used_headers = await self.get_used_headers(cookie=token, uid=roleId)
+            used_headers = await self.get_used_headers(
+                cookie=token, uid=roleId, needToken=True
+            )
             header.update(used_headers)
             data = {"gameId": "3"}
             return await self._waves_request(SHARE_URL, "POST", header, data=data)
