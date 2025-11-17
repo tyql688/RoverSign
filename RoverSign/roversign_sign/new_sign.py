@@ -210,6 +210,11 @@ async def rover_auto_sign_task():
 
             login_res = await rover_api.login_log(user.uid, user.cookie)
             if not login_res.success:
+                if login_res.is_bat_token_invalid:
+                    if waves_user := await rover_api.refresh_bat_token(user):
+                        user.cookie = waves_user.cookie
+                else:
+                    await login_res.mark_cookie_invalid(user.uid, user.cookie)
                 return
 
             refresh_res = await rover_api.refresh_data(user.uid, user.cookie)
