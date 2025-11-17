@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import json
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Mapping, Optional, Union
@@ -30,6 +31,7 @@ from ..api.api import (
     SIGNIN_TASK_LIST_URL,
     SIGNIN_URL,
     get_local_proxy_url,
+    get_need_proxy_func,
 )
 from ..database.models import WavesUser
 from ..errors import ROVER_CODE_999
@@ -364,7 +366,11 @@ class RoverRequest:
         if header is None:
             header = await get_base_header()
 
-        proxy_url = get_local_proxy_url()
+        proxy_func = get_need_proxy_func()
+        if inspect.stack()[1].function in proxy_func or "all" in proxy_func:
+            proxy_url = get_local_proxy_url()
+        else:
+            proxy_url = None
 
         for attempt in range(max_retries):
             try:

@@ -43,3 +43,12 @@ def get_local_proxy_url():
     if LocalProxyUrl:
         return LocalProxyUrl
     return None
+
+
+def get_need_proxy_func():
+    from ...roversign_config.roversign_config import RoverSignConfig
+
+    NeedProxyFunc = RoverSignConfig.get_config("NeedProxyFunc").data
+    if NeedProxyFunc:
+        return NeedProxyFunc
+    return []
