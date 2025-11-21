@@ -89,7 +89,10 @@ def check_send_master_info(code: int, msg: str, data: Optional[T] = None) -> boo
     if code in NOT_SEND_MASTER_INFO_CODES:
         return False
 
-    logger.warning(f"[rover] code: {code} msg: {msg} data: {data}")
+    import inspect
+
+    callers = [f.function for f in inspect.stack()[5:8][::-1]]
+    logger.warning(f"[rover] {'.'.join(callers)} code: {code} msg: {msg} data: {data}")
     return isinstance(msg, str) and msg != ""
 
 
@@ -132,7 +135,7 @@ class KuroApiResp(BaseModel, Generic[T]):
 
     @model_validator(mode="after")
     def _post_validate(self) -> "KuroApiResp[T]":
-        if check_send_master_info(self.code, self.msg):
+        if check_send_master_info(self.code, self.msg, self.data):
             pass
         return self
 
