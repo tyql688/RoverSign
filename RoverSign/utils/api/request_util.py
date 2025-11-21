@@ -1,18 +1,19 @@
 from enum import IntEnum
-from typing import Any, Dict, Union, Generic, TypeVar, Optional
+from typing import Any, Dict, Generic, Optional, TypeVar, Union
 
-from gsuid_core.logger import logger
 from pydantic import (
-    Field,
     BaseModel,
     ConfigDict,
+    Field,
     computed_field,
     model_validator,
 )
 
-from ...utils.util import get_public_ip, generate_random_string
+from gsuid_core.logger import logger
 
-KURO_VERSION = "2.6.3"
+from ...utils.util import generate_random_string, get_public_ip
+
+KURO_VERSION = "2.8.0"
 PLATFORM_SOURCE = "ios"
 CONTENT_TYPE = "application/x-www-form-urlencoded; charset=utf-8"
 
@@ -21,7 +22,7 @@ async def get_base_header(devCode: Optional[str] = None):
     header = {
         "source": PLATFORM_SOURCE,
         "Content-Type": CONTENT_TYPE,
-        "User-Agent": "KuroGameBox/20250922183526 CFNetwork/3860.100.1 Darwin/25.0.0",
+        "User-Agent": " Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko)  KuroGameBox/2.8.0",
         "version": KURO_VERSION,  # getPostDetail 需要版本号
     }
     if devCode:
@@ -29,7 +30,7 @@ async def get_base_header(devCode: Optional[str] = None):
     else:
         ip = await get_public_ip()
         header["devCode"] = (
-            f"{ip}, Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko)  KuroGameBox/2.6.3"
+            f"{ip}, Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko)  KuroGameBox/2.8.0"
         )
     return header
 

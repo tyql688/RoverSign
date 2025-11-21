@@ -1,1 +1,1 @@
-RoverSign_version = "1.0.0"
+RoverSign_version = "2.8.0"
